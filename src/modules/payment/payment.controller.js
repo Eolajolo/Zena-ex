@@ -1,8 +1,453 @@
 const PaymentService = require('./payment.service');
+const AirtimeService = require('./airtime.service');
+const BillsTransactionService = require('./bills.transaction.service');
+const ProviderService = require('./provider.service');
 const { logger } = require('../../shared/utils');
 
+// ==========================================
+// Airtime Endpoints
+// ==========================================
+
 /**
- * Pay a bill
+ * Get airtime providers
+ * GET /api/payment/airtime/providers
+ */
+const getAirtimeProviders = async (req, res, next) => {
+  try {
+    const providers = AirtimeService.getProviders();
+    const amountOptions = AirtimeService.getAmountOptions();
+
+    res.status(200).json({
+      success: true,
+      data: {
+        providers,
+        ...amountOptions
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Validate phone number and detect provider
+ * POST /api/payment/airtime/validate-phone
+ */
+const validateAirtimePhone = async (req, res, next) => {
+  try {
+    const { phoneNumber } = req.body;
+    const result = AirtimeService.validatePhoneNumber(phoneNumber);
+
+    res.status(200).json({
+      success: true,
+      data: result
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get recent phone numbers for airtime
+ * GET /api/payment/airtime/recent
+ */
+const getRecentAirtimeNumbers = async (req, res, next) => {
+  try {
+    const limit = parseInt(req.query.limit) || 5;
+    const recentNumbers = AirtimeService.getRecentPhoneNumbers(req.user.id, limit);
+    const recentTransactions = AirtimeService.getRecentTransactions(req.user.id, limit);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        recentNumbers,
+        recentTransactions
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Initiate airtime purchase (get preview)
+ * POST /api/payment/airtime/initiate
+ */
+const initiateAirtimePurchase = async (req, res, next) => {
+  try {
+    const { phoneNumber, providerCode, amount } = req.body;
+
+    const preview = await AirtimeService.initiateAirtimePurchase(req.user.id, {
+      phoneNumber,
+      providerCode,
+      amount
+    });
+
+    logger.info('Airtime purchase initiated', {
+      userId: req.user.id,
+      amount,
+      provider: preview.provider.code
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Review your transaction details',
+      data: preview
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Confirm and execute airtime purchase
+ * POST /api/payment/airtime/purchase
+ */
+const purchaseAirtime = async (req, res, next) => {
+  try {
+    const { previewToken, transactionPin } = req.body;
+
+    const result = await AirtimeService.purchaseAirtime(
+      req.user.id,
+      previewToken,
+      transactionPin
+    );
+
+    logger.info('Airtime purchase completed', {
+      userId: req.user.id,
+      transactionId: result.transaction.id,
+      success: result.success
+    });
+
+    res.status(200).json({
+      success: result.success,
+      message: result.message,
+      data: result.transaction
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get airtime transaction history
+ * GET /api/payment/airtime/transactions
+ */
+const getAirtimeHistory = async (req, res, next) => {
+  try {
+    const { provider, status, search, startDate, endDate, limit, offset } = req.query;
+
+    const result = AirtimeService.getTransactionHistory(req.user.id, {
+      providerCode: provider,
+      status,
+      search,
+      startDate,
+      endDate,
+      limit: parseInt(limit) || 50,
+      offset: parseInt(offset) || 0
+    });
+
+    res.status(200).json({
+      success: true,
+      data: result
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get single airtime transaction details
+ * GET /api/payment/airtime/transactions/:transactionId
+ */
+const getAirtimeTransaction = async (req, res, next) => {
+  try {
+    const { transactionId } = req.params;
+    const transaction = AirtimeService.getTransactionDetails(req.user.id, transactionId);
+
+    res.status(200).json({
+      success: true,
+      data: transaction
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Generate airtime transaction receipt
+ * GET /api/payment/airtime/transactions/:transactionId/receipt
+ */
+const getAirtimeReceipt = async (req, res, next) => {
+  try {
+    const { transactionId } = req.params;
+    const receipt = AirtimeService.generateReceipt(req.user.id, transactionId);
+
+    res.status(200).json({
+      success: true,
+      data: receipt
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Redo an airtime transaction
+ * POST /api/payment/airtime/transactions/:transactionId/redo
+ */
+const redoAirtimeTransaction = async (req, res, next) => {
+  try {
+    const { transactionId } = req.params;
+    const preview = await AirtimeService.redoTransaction(req.user.id, transactionId);
+
+    res.status(200).json({
+      success: true,
+      message: 'Transaction ready to redo',
+      data: preview
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Report issue with airtime transaction
+ * POST /api/payment/airtime/transactions/:transactionId/report
+ */
+const reportAirtimeIssue = async (req, res, next) => {
+  try {
+    const { transactionId } = req.params;
+    const { type, description } = req.body;
+
+    const result = AirtimeService.reportIssue(req.user.id, transactionId, {
+      type,
+      description
+    });
+
+    logger.info('Airtime issue reported', {
+      userId: req.user.id,
+      transactionId,
+      issueId: result.issueId
+    });
+
+    res.status(200).json({
+      success: true,
+      data: result
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ==========================================
+// Unified Bills Transaction Endpoints
+// ==========================================
+
+/**
+ * Get all bills transaction history
+ * GET /api/payment/bills/transactions
+ */
+const getAllBillsHistory = async (req, res, next) => {
+  try {
+    const { category, status, search, startDate, endDate, limit, offset } = req.query;
+
+    const result = BillsTransactionService.getAllBillsHistory(req.user.id, {
+      category,
+      status,
+      search,
+      startDate,
+      endDate,
+      limit: parseInt(limit) || 50,
+      offset: parseInt(offset) || 0
+    });
+
+    res.status(200).json({
+      success: true,
+      data: result
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get single transaction details
+ * GET /api/payment/bills/transactions/:transactionId
+ */
+const getBillTransaction = async (req, res, next) => {
+  try {
+    const { transactionId } = req.params;
+    const transaction = BillsTransactionService.getTransactionDetails(req.user.id, transactionId);
+
+    res.status(200).json({
+      success: true,
+      data: transaction
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Generate transaction receipt
+ * GET /api/payment/bills/transactions/:transactionId/receipt
+ */
+const getBillReceipt = async (req, res, next) => {
+  try {
+    const { transactionId } = req.params;
+    const receipt = BillsTransactionService.generateReceipt(req.user.id, transactionId);
+
+    res.status(200).json({
+      success: true,
+      data: receipt
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Report issue with any bill transaction
+ * POST /api/payment/bills/transactions/:transactionId/report
+ */
+const reportBillIssue = async (req, res, next) => {
+  try {
+    const { transactionId } = req.params;
+    const { type, description, contactMethod } = req.body;
+
+    const result = BillsTransactionService.reportIssue(req.user.id, transactionId, {
+      type,
+      description,
+      contactMethod
+    });
+
+    logger.info('Bill issue reported', {
+      userId: req.user.id,
+      transactionId,
+      issueId: result.issueId
+    });
+
+    res.status(200).json({
+      success: true,
+      data: result
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get issue types
+ * GET /api/payment/bills/issue-types
+ */
+const getIssueTypes = async (req, res, next) => {
+  try {
+    const issueTypes = BillsTransactionService.getIssueTypes();
+
+    res.status(200).json({
+      success: true,
+      data: { issueTypes }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get user's reported issues
+ * GET /api/payment/bills/issues
+ */
+const getUserIssues = async (req, res, next) => {
+  try {
+    const { status, limit, offset } = req.query;
+
+    const result = BillsTransactionService.getUserIssues(req.user.id, {
+      status,
+      limit: parseInt(limit) || 20,
+      offset: parseInt(offset) || 0
+    });
+
+    res.status(200).json({
+      success: true,
+      data: result
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get single issue details
+ * GET /api/payment/bills/issues/:issueId
+ */
+const getIssueDetails = async (req, res, next) => {
+  try {
+    const { issueId } = req.params;
+    const issue = BillsTransactionService.getIssueDetails(req.user.id, issueId);
+
+    res.status(200).json({
+      success: true,
+      data: issue
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ==========================================
+// Provider Health Endpoints (Admin)
+// ==========================================
+
+/**
+ * Get provider health dashboard
+ * GET /api/payment/providers/health
+ */
+const getProviderHealth = async (req, res, next) => {
+  try {
+    const dashboard = ProviderService.getHealthDashboard();
+
+    res.status(200).json({
+      success: true,
+      data: dashboard
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Toggle provider enabled status
+ * POST /api/payment/providers/:providerId/toggle
+ */
+const toggleProvider = async (req, res, next) => {
+  try {
+    const { providerId } = req.params;
+    const { enabled } = req.body;
+
+    const result = ProviderService.setProviderEnabled(providerId, enabled);
+
+    logger.info('Provider toggled', {
+      providerId,
+      enabled,
+      adminId: req.user.id
+    });
+
+    res.status(200).json({
+      success: true,
+      data: result
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ==========================================
+// Legacy/General Endpoints
+// ==========================================
+
+/**
+ * Pay a bill (generic)
  * POST /api/payment/bills
  */
 const payBill = async (req, res, next) => {
@@ -75,8 +520,8 @@ const transferToBank = async (req, res, next) => {
 };
 
 /**
- * Get bill history
- * GET /api/payment/bills
+ * Get bill history (legacy)
+ * GET /api/payment/bills/history
  */
 const getBillHistory = async (req, res, next) => {
   try {
@@ -153,6 +598,32 @@ const getBanks = async (req, res, next) => {
 };
 
 module.exports = {
+  // Airtime
+  getAirtimeProviders,
+  validateAirtimePhone,
+  getRecentAirtimeNumbers,
+  initiateAirtimePurchase,
+  purchaseAirtime,
+  getAirtimeHistory,
+  getAirtimeTransaction,
+  getAirtimeReceipt,
+  redoAirtimeTransaction,
+  reportAirtimeIssue,
+
+  // Unified Bills
+  getAllBillsHistory,
+  getBillTransaction,
+  getBillReceipt,
+  reportBillIssue,
+  getIssueTypes,
+  getUserIssues,
+  getIssueDetails,
+
+  // Provider Health
+  getProviderHealth,
+  toggleProvider,
+
+  // Legacy/General
   payBill,
   transferToUser,
   transferToBank,
