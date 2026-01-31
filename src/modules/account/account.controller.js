@@ -185,3 +185,4 @@ module.exports = {
   deactivateAccount,
   getKycStatus
 };
+
