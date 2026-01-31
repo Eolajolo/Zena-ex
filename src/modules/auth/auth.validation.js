@@ -1,24 +1,10 @@
-const { body, param, validationResult } = require('express-validator');
+const { body } = require('express-validator');
+const { COUNTRY_CODES } = require('../../shared/constants');
 
-// Supported country codes
-const countryCodes = [
-  '+234', // Nigeria
-  '+1',   // USA/Canada
-  '+44',  // UK
-  '+91',  // India
-  '+233', // Ghana
-  '+254', // Kenya
-  '+27',  // South Africa
-  '+971', // UAE
-  '+49',  // Germany
-  '+33',  // France
-  '+86',  // China
-  '+81',  // Japan
-  '+61',  // Australia
-];
+const countryCodeValues = COUNTRY_CODES.map(c => c.code);
 
-// Validation rules for Step 1 - Account Details
-const step1Validation = [
+// Step 1 validation - Account details
+const registerStep1Validation = [
   body('username')
     .trim()
     .notEmpty()
@@ -51,7 +37,7 @@ const step1Validation = [
     .notEmpty()
     .withMessage('Country code is required')
     .custom((value) => {
-      if (!countryCodes.includes(value)) {
+      if (!countryCodeValues.includes(value)) {
         throw new Error('Invalid country code');
       }
       return true;
@@ -93,8 +79,8 @@ const step1Validation = [
     })
 ];
 
-// Validation rules for Step 2 - Password Setup
-const step2Validation = [
+// Step 2 validation - Password setup
+const registerStep2Validation = [
   body('password')
     .notEmpty()
     .withMessage('Password is required')
@@ -116,66 +102,25 @@ const step2Validation = [
     })
 ];
 
-// Combined validation for full registration (both steps at once)
-const registerValidation = [...step1Validation, ...step2Validation];
+// Full registration validation (both steps)
+const registerValidation = [...registerStep1Validation, ...registerStep2Validation];
 
-// Validation for username availability check
-const usernameCheckValidation = [
-  param('username')
+// Login validation
+const loginValidation = [
+  body('email')
     .trim()
     .notEmpty()
-    .withMessage('Username is required')
-    .isLength({ min: 3, max: 30 })
-    .withMessage('Username must be between 3 and 30 characters')
-];
+    .withMessage('Email is required')
+    .isEmail()
+    .withMessage('Please provide a valid email address')
+    .normalizeEmail(),
 
-// Validation for referral code check
-const referralCodeValidation = [
-  param('code')
-    .trim()
+  body('password')
     .notEmpty()
-    .withMessage('Referral code is required')
+    .withMessage('Password is required')
 ];
 
-// Validation for updating user settings (biometric, faceId, notifications)
-const settingsValidation = [
-  body('biometricEnabled')
-    .optional()
-    .isBoolean()
-    .withMessage('Biometric enabled must be a boolean'),
-
-  body('faceIdEnabled')
-    .optional()
-    .isBoolean()
-    .withMessage('Face ID enabled must be a boolean'),
-
-  body('notificationsEnabled')
-    .optional()
-    .isBoolean()
-    .withMessage('Notifications enabled must be a boolean')
-];
-
-// Middleware to handle validation errors
-const handleValidationErrors = (req, res, next) => {
-  const errors = validationResult(req);
-
-  if (!errors.isEmpty()) {
-    const formattedErrors = errors.array().map((err) => ({
-      field: err.path,
-      message: err.msg
-    }));
-
-    return res.status(400).json({
-      success: false,
-      message: 'Validation failed',
-      errors: formattedErrors
-    });
-  }
-
-  next();
-};
-
-// Password strength checker (for real-time validation feedback)
+// Password strength checker
 const checkPasswordStrength = (password) => {
   const checks = {
     minLength: password.length >= 8,
@@ -192,13 +137,9 @@ const checkPasswordStrength = (password) => {
 };
 
 module.exports = {
-  step1Validation,
-  step2Validation,
+  registerStep1Validation,
+  registerStep2Validation,
   registerValidation,
-  usernameCheckValidation,
-  referralCodeValidation,
-  settingsValidation,
-  handleValidationErrors,
-  checkPasswordStrength,
-  countryCodes
+  loginValidation,
+  checkPasswordStrength
 };
