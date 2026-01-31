@@ -1,4 +1,5 @@
 const AuthService = require('./auth.service');
+const OTPService = require('./otp.service');
 const { checkPasswordStrength } = require('./auth.validation');
 const { COUNTRY_CODES } = require('../../shared/constants');
 const { logger } = require('../../shared/utils');
@@ -146,15 +147,67 @@ const register = async (req, res, next) => {
  */
 const login = async (req, res, next) => {
   try {
-    const { email, password } = req.body;
-    const result = await AuthService.login(email, password);
+    const { email, password, rememberMe } = req.body;
 
-    logger.info('User logged in', { userId: result.user.id });
+    // Extract device info from headers
+    const deviceInfo = {
+      userAgent: req.headers['user-agent'],
+      platform: req.headers['x-platform'],
+      deviceId: req.headers['x-device-id']
+    };
+
+    const result = await AuthService.login(email, password, { rememberMe, deviceInfo });
+
+    logger.info('User logged in', { userId: result.user.id, rememberMe });
 
     res.status(200).json({
       success: true,
       message: 'Login successful',
       data: result
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Biometric login (subsequent login)
+ * POST /api/auth/biometric-login
+ */
+const biometricLogin = async (req, res, next) => {
+  try {
+    const { biometricToken } = req.body;
+    const deviceId = req.headers['x-device-id'];
+
+    const result = await AuthService.biometricLogin(biometricToken, deviceId);
+
+    logger.info('Biometric login', { userId: result.user.id });
+
+    res.status(200).json({
+      success: true,
+      message: 'Login successful',
+      data: result
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get remembered user for device (for subsequent login UI)
+ * GET /api/auth/remembered-user
+ */
+const getRememberedUser = async (req, res, next) => {
+  try {
+    const deviceId = req.headers['x-device-id'];
+    const rememberedUser = AuthService.getRememberedUser(deviceId);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        hasRememberedUser: !!rememberedUser,
+        user: rememberedUser
+      }
     });
   } catch (error) {
     next(error);
@@ -176,6 +229,25 @@ const logout = async (req, res, next) => {
     res.status(200).json({
       success: true,
       message: 'Logged out successfully'
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Logout from all devices
+ * POST /api/auth/logout-all
+ */
+const logoutAll = async (req, res, next) => {
+  try {
+    await AuthService.logoutAll(req.user.id);
+
+    logger.info('User logged out from all devices', { userId: req.user.id });
+
+    res.status(200).json({
+      success: true,
+      message: 'Logged out from all devices'
     });
   } catch (error) {
     next(error);
@@ -223,14 +295,228 @@ const updateSettings = async (req, res, next) => {
   }
 };
 
+/**
+ * Enable biometric login
+ * POST /api/auth/biometric/enable
+ */
+const enableBiometric = async (req, res, next) => {
+  try {
+    const { type = 'biometric' } = req.body; // 'biometric' or 'faceId'
+    const deviceId = req.headers['x-device-id'];
+
+    const result = await AuthService.enableBiometric(req.user.id, deviceId, type);
+
+    logger.info('Biometric enabled', { userId: req.user.id, type });
+
+    res.status(200).json({
+      success: true,
+      message: result.message,
+      data: {
+        biometricToken: result.biometricToken
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Disable biometric login
+ * POST /api/auth/biometric/disable
+ */
+const disableBiometric = async (req, res, next) => {
+  try {
+    const { type = 'biometric' } = req.body;
+
+    const result = await AuthService.disableBiometric(req.user.id, type);
+
+    logger.info('Biometric disabled', { userId: req.user.id, type });
+
+    res.status(200).json({
+      success: true,
+      message: result.message
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ==========================================
+// Forgot Password Flow
+// ==========================================
+
+/**
+ * Request password reset (Step 1)
+ * POST /api/auth/forgot-password
+ */
+const forgotPassword = async (req, res, next) => {
+  try {
+    const { email } = req.body;
+
+    const result = await AuthService.requestPasswordReset(email);
+
+    logger.info('Password reset requested', { email: OTPService.maskEmail(email) });
+
+    res.status(200).json({
+      success: true,
+      message: result.message,
+      data: {
+        email: result.email,
+        expiresInMinutes: result.expiresInMinutes,
+        // Only in development
+        ...(result.otp && { otp: result.otp })
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Verify password reset OTP (Step 2)
+ * POST /api/auth/forgot-password/verify
+ */
+const verifyPasswordResetOTP = async (req, res, next) => {
+  try {
+    const { email, otp } = req.body;
+
+    const result = await AuthService.verifyPasswordResetOTP(email, otp);
+
+    logger.info('Password reset OTP verified', { email: OTPService.maskEmail(email) });
+
+    res.status(200).json({
+      success: true,
+      message: result.message,
+      data: {
+        resetToken: result.resetToken,
+        expiresInMinutes: result.expiresInMinutes
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Reset password (Step 3)
+ * POST /api/auth/reset-password
+ */
+const resetPassword = async (req, res, next) => {
+  try {
+    const { resetToken, password } = req.body;
+
+    const result = await AuthService.resetPassword(resetToken, password);
+
+    logger.info('Password reset completed');
+
+    res.status(200).json({
+      success: true,
+      message: result.message
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Resend password reset OTP
+ * POST /api/auth/forgot-password/resend
+ */
+const resendPasswordResetOTP = async (req, res, next) => {
+  try {
+    const { email } = req.body;
+
+    const result = await AuthService.resendPasswordResetOTP(email);
+
+    logger.info('Password reset OTP resent', { email: OTPService.maskEmail(email) });
+
+    res.status(200).json({
+      success: true,
+      message: result.message,
+      data: {
+        email: result.email,
+        expiresInMinutes: result.expiresInMinutes,
+        ...(result.otp && { otp: result.otp })
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get resend OTP status (cooldown check)
+ * GET /api/auth/forgot-password/resend-status
+ */
+const getResendStatus = async (req, res, next) => {
+  try {
+    const { email } = req.query;
+
+    const status = OTPService.getResendStatus(email, 'password_reset');
+
+    res.status(200).json({
+      success: true,
+      data: {
+        canResend: status.canResend,
+        cooldownRemaining: status.cooldownRemaining
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Change password (for authenticated user)
+ * POST /api/auth/change-password
+ */
+const changePassword = async (req, res, next) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+
+    const result = await AuthService.changePassword(req.user.id, currentPassword, newPassword);
+
+    logger.info('Password changed', { userId: req.user.id });
+
+    res.status(200).json({
+      success: true,
+      message: result.message
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
+  // Registration & validation
   checkUsername,
   validateReferralCode,
   checkPassword,
   getCountryCodes,
   register,
+
+  // Login
   login,
+  biometricLogin,
+  getRememberedUser,
+
+  // Logout
   logout,
+  logoutAll,
+
+  // User
   getCurrentUser,
-  updateSettings
+  updateSettings,
+
+  // Biometric
+  enableBiometric,
+  disableBiometric,
+
+  // Forgot password
+  forgotPassword,
+  verifyPasswordResetOTP,
+  resetPassword,
+  resendPasswordResetOTP,
+  getResendStatus,
+  changePassword
 };
