@@ -4,6 +4,7 @@ const DataService = require('./data.service');
 const GenericBillsService = require('./generic-bills.service');
 const BillsTransactionService = require('./bills.transaction.service');
 const ProviderService = require('./provider.service');
+const WithdrawalService = require('./withdrawal.service');
 const { logger } = require('../../shared/utils');
 const { BILL_CATEGORIES } = require('../../shared/constants');
 
@@ -1188,6 +1189,356 @@ const createBillTypeHandlers = (billType) => ({
 
 // Create handlers for each bill type
 const bettingHandlers = createBillTypeHandlers(BILL_CATEGORIES.BETTING);
+
+// ==========================================
+// Withdrawal/Payout Endpoints
+// ==========================================
+
+/**
+ * Get supported countries for withdrawal
+ * GET /api/payment/withdrawal/countries
+ */
+const getWithdrawalCountries = async (req, res, next) => {
+  try {
+    const countries = WithdrawalService.getSupportedCountries();
+
+    res.status(200).json({
+      success: true,
+      data: { countries }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get payout options for a country (banks + mobile money)
+ * GET /api/payment/withdrawal/countries/:countryCode/options
+ */
+const getWithdrawalOptions = async (req, res, next) => {
+  try {
+    const { countryCode } = req.params;
+    const options = WithdrawalService.getPayoutOptions(countryCode);
+
+    if (!options) {
+      return res.status(404).json({
+        success: false,
+        message: 'Country not supported'
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: options
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get banks for a country
+ * GET /api/payment/withdrawal/banks
+ */
+const getWithdrawalBanks = async (req, res, next) => {
+  try {
+    const { countryCode, search } = req.query;
+    const banks = WithdrawalService.getBanks(countryCode, search);
+
+    res.status(200).json({
+      success: true,
+      data: { banks }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get mobile money providers for a country
+ * GET /api/payment/withdrawal/mobile-wallets
+ */
+const getWithdrawalMobileWallets = async (req, res, next) => {
+  try {
+    const { countryCode } = req.query;
+    const wallets = WithdrawalService.getMobileMoneyProviders(countryCode);
+
+    res.status(200).json({
+      success: true,
+      data: { wallets }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Validate bank account
+ * POST /api/payment/withdrawal/validate-bank
+ */
+const validateWithdrawalBankAccount = async (req, res, next) => {
+  try {
+    const { countryCode, bankCode, accountNumber } = req.body;
+    const result = await WithdrawalService.validateBankAccount(countryCode, bankCode, accountNumber);
+
+    res.status(200).json({
+      success: true,
+      data: result
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Validate mobile wallet
+ * POST /api/payment/withdrawal/validate-wallet
+ */
+const validateWithdrawalMobileWallet = async (req, res, next) => {
+  try {
+    const { countryCode, walletProvider, phoneNumber } = req.body;
+    const result = await WithdrawalService.validateMobileWallet(countryCode, walletProvider, phoneNumber);
+
+    res.status(200).json({
+      success: true,
+      data: result
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get recent withdrawal recipients
+ * GET /api/payment/withdrawal/recipients
+ */
+const getWithdrawalRecipients = async (req, res, next) => {
+  try {
+    const { countryCode, limit } = req.query;
+    const recipients = WithdrawalService.getRecentRecipients(
+      req.user.id,
+      countryCode,
+      parseInt(limit) || 10
+    );
+
+    res.status(200).json({
+      success: true,
+      data: { recipients }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Initiate withdrawal (get preview)
+ * POST /api/payment/withdrawal/initiate
+ */
+const initiateWithdrawal = async (req, res, next) => {
+  try {
+    const {
+      countryCode,
+      bankCode,
+      walletProvider,
+      accountNumber,
+      phoneNumber,
+      amount,
+      sourceCurrency,
+      narration
+    } = req.body;
+
+    // Get idempotency key from header
+    const idempotencyKey = req.headers['x-idempotency-key'] || null;
+
+    const preview = await WithdrawalService.initiateWithdrawal(req.user.id, {
+      countryCode,
+      bankCode,
+      walletProvider,
+      accountNumber,
+      phoneNumber,
+      amount,
+      sourceCurrency,
+      narration,
+      deviceInfo: {
+        ip: req.ip,
+        userAgent: req.headers['user-agent']
+      }
+    }, idempotencyKey);
+
+    // Check if this is a duplicate request
+    if (preview.isDuplicate) {
+      logger.info('Duplicate withdrawal request detected', {
+        userId: req.user.id,
+        idempotencyKey
+      });
+
+      return res.status(200).json({
+        success: true,
+        message: preview.message,
+        data: preview.transaction,
+        isDuplicate: true
+      });
+    }
+
+    logger.info('Withdrawal initiated', {
+      userId: req.user.id,
+      amount: preview.sourceAmount,
+      currency: preview.sourceCurrency,
+      country: preview.country.code
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Review your withdrawal details',
+      data: preview
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Confirm and execute withdrawal
+ * POST /api/payment/withdrawal/confirm
+ */
+const confirmWithdrawal = async (req, res, next) => {
+  try {
+    const { previewToken, transactionPin, biometricToken } = req.body;
+
+    const result = await WithdrawalService.confirmWithdrawal(
+      req.user.id,
+      previewToken,
+      transactionPin,
+      biometricToken
+    );
+
+    logger.info('Withdrawal completed', {
+      userId: req.user.id,
+      transactionId: result.transaction.id,
+      status: result.status,
+      success: result.success
+    });
+
+    res.status(200).json({
+      success: result.success,
+      message: result.message,
+      data: result.transaction
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get withdrawal transaction history
+ * GET /api/payment/withdrawal/transactions
+ */
+const getWithdrawalHistory = async (req, res, next) => {
+  try {
+    const { status, countryCode, search, startDate, endDate, limit, offset } = req.query;
+
+    const result = WithdrawalService.getTransactionHistory(req.user.id, {
+      status,
+      countryCode,
+      search,
+      startDate,
+      endDate,
+      limit: parseInt(limit) || 50,
+      offset: parseInt(offset) || 0
+    });
+
+    res.status(200).json({
+      success: true,
+      data: result
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get single withdrawal transaction details
+ * GET /api/payment/withdrawal/transactions/:transactionId
+ */
+const getWithdrawalTransaction = async (req, res, next) => {
+  try {
+    const { transactionId } = req.params;
+    const transaction = WithdrawalService.getTransactionDetails(req.user.id, transactionId);
+
+    res.status(200).json({
+      success: true,
+      data: transaction
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Generate withdrawal receipt
+ * GET /api/payment/withdrawal/transactions/:transactionId/receipt
+ */
+const getWithdrawalReceipt = async (req, res, next) => {
+  try {
+    const { transactionId } = req.params;
+    const receipt = WithdrawalService.generateReceipt(req.user.id, transactionId);
+
+    res.status(200).json({
+      success: true,
+      data: receipt
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Redo a withdrawal
+ * POST /api/payment/withdrawal/transactions/:transactionId/redo
+ */
+const redoWithdrawal = async (req, res, next) => {
+  try {
+    const { transactionId } = req.params;
+    const preview = await WithdrawalService.redoWithdrawal(req.user.id, transactionId);
+
+    res.status(200).json({
+      success: true,
+      message: 'Withdrawal ready to redo',
+      data: preview
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Report issue with withdrawal
+ * POST /api/payment/withdrawal/transactions/:transactionId/report
+ */
+const reportWithdrawalIssue = async (req, res, next) => {
+  try {
+    const { transactionId } = req.params;
+    const { type, description } = req.body;
+
+    const result = WithdrawalService.reportIssue(req.user.id, transactionId, {
+      type,
+      description
+    });
+
+    logger.info('Withdrawal issue reported', {
+      userId: req.user.id,
+      transactionId,
+      issueId: result.issueId
+    });
+
+    res.status(200).json({
+      success: true,
+      data: result
+    });
+  } catch (error) {
+    next(error);
+  }
+};
 const electricityHandlers = createBillTypeHandlers(BILL_CATEGORIES.ELECTRICITY);
 const tvHandlers = createBillTypeHandlers(BILL_CATEGORIES.TV);
 
@@ -1323,6 +1674,22 @@ module.exports = {
   // Provider Health
   getProviderHealth,
   toggleProvider,
+
+  // Withdrawal/Payout
+  getWithdrawalCountries,
+  getWithdrawalOptions,
+  getWithdrawalBanks,
+  getWithdrawalMobileWallets,
+  validateWithdrawalBankAccount,
+  validateWithdrawalMobileWallet,
+  getWithdrawalRecipients,
+  initiateWithdrawal,
+  confirmWithdrawal,
+  getWithdrawalHistory,
+  getWithdrawalTransaction,
+  getWithdrawalReceipt,
+  redoWithdrawal,
+  reportWithdrawalIssue,
 
   // Legacy/General
   payBill,

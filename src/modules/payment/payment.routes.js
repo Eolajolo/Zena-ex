@@ -160,6 +160,34 @@ router.post('/bills', rateLimiters.transactions, paymentController.payBill);
 router.get('/bills/history', paymentController.getBillHistory);
 
 // ==========================================
+// Withdrawal/Payout Routes
+// ==========================================
+
+// Countries and payout options
+router.get('/withdrawal/countries', paymentController.getWithdrawalCountries);
+router.get('/withdrawal/countries/:countryCode/options', paymentController.getWithdrawalOptions);
+router.get('/withdrawal/banks', paymentController.getWithdrawalBanks);
+router.get('/withdrawal/mobile-wallets', paymentController.getWithdrawalMobileWallets);
+
+// Account validation
+router.post('/withdrawal/validate-bank', paymentController.validateWithdrawalBankAccount);
+router.post('/withdrawal/validate-wallet', paymentController.validateWithdrawalMobileWallet);
+
+// Recent recipients
+router.get('/withdrawal/recipients', paymentController.getWithdrawalRecipients);
+
+// Withdrawal flow
+router.post('/withdrawal/initiate', rateLimiters.transactions, paymentController.initiateWithdrawal);
+router.post('/withdrawal/confirm', rateLimiters.transactions, paymentController.confirmWithdrawal);
+
+// Withdrawal transaction history
+router.get('/withdrawal/transactions', paymentController.getWithdrawalHistory);
+router.get('/withdrawal/transactions/:transactionId', paymentController.getWithdrawalTransaction);
+router.get('/withdrawal/transactions/:transactionId/receipt', paymentController.getWithdrawalReceipt);
+router.post('/withdrawal/transactions/:transactionId/redo', paymentController.redoWithdrawal);
+router.post('/withdrawal/transactions/:transactionId/report', paymentController.reportWithdrawalIssue);
+
+// ==========================================
 // Transfer Routes
 // ==========================================
 
