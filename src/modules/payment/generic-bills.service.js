@@ -30,6 +30,21 @@ const HIGH_VALUE_THRESHOLD = 500000;
 // Cashback rate (2%)
 const CASHBACK_RATE = 0.02;
 
+// VAT rate for electricity (7.5%)
+const ELECTRICITY_VAT_RATE = 0.075;
+
+// Default tariff rates per DISCO (₦/kWh) - will be updated from provider API
+const DEFAULT_TARIFF_RATES = {
+  IKEDC: 209.5,
+  EKEDC: 205.8,
+  AEDC: 198.6,
+  PHED: 215.2,
+  KEDCO: 195.4,
+  IBEDC: 202.3,
+  BEDC: 210.8,
+  EEDC: 198.9
+};
+
 // ==========================================
 // BILL TYPE CONFIGURATIONS
 // ==========================================
@@ -122,69 +137,98 @@ const BILL_CONFIGS = {
     referencePrefix: 'ELC',
     customerIdField: 'meterNumber',
     customerIdLabel: 'Meter Number',
-    customerIdPlaceholder: 'Enter Meter Number',
+    customerIdPlaceholder: 'Enter your Meter Number',
     requiresValidation: true,
     validationOperation: 'verify_meter',
     purchaseOperation: 'purchase_electricity',
     amountLimits: { min: 1000, max: 500000 },
     hasMeterTypes: true,
-    meterTypes: ['prepaid', 'postpaid'],
+    meterTypes: [
+      { id: 'prepaid', name: 'Prepaid', description: 'Pay before use - receive token' },
+      { id: 'postpaid', name: 'Postpaid', description: 'Pay after use - clear bills' }
+    ],
+    defaultMeterType: 'prepaid',
+    vatRate: ELECTRICITY_VAT_RATE,
     providers: {
       IKEDC: {
         id: 'ikedc',
         code: 'IKEDC',
         name: 'Ikeja Electric',
+        shortName: 'Ikeja Electric',
         logo: 'ikedc.png',
-        serviceId: 'ikeja-electric'
+        serviceId: 'ikeja-electric',
+        tariffRate: DEFAULT_TARIFF_RATES.IKEDC,
+        minPurchase: 1000
       },
       EKEDC: {
         id: 'ekedc',
         code: 'EKEDC',
         name: 'Eko Electric',
+        shortName: 'EKEDC',
         logo: 'ekedc.png',
-        serviceId: 'eko-electric'
+        serviceId: 'eko-electric',
+        tariffRate: DEFAULT_TARIFF_RATES.EKEDC,
+        minPurchase: 1000
       },
       AEDC: {
         id: 'aedc',
         code: 'AEDC',
         name: 'Abuja Electric',
+        shortName: 'AEDC',
         logo: 'aedc.png',
-        serviceId: 'abuja-electric'
+        serviceId: 'abuja-electric',
+        tariffRate: DEFAULT_TARIFF_RATES.AEDC,
+        minPurchase: 1000
       },
       PHED: {
         id: 'phed',
         code: 'PHED',
         name: 'Port Harcourt Electric',
+        shortName: 'PHED',
         logo: 'phed.png',
-        serviceId: 'portharcourt-electric'
+        serviceId: 'portharcourt-electric',
+        tariffRate: DEFAULT_TARIFF_RATES.PHED,
+        minPurchase: 1000
       },
       KEDCO: {
         id: 'kedco',
         code: 'KEDCO',
         name: 'Kano Electric',
+        shortName: 'KEDCO',
         logo: 'kedco.png',
-        serviceId: 'kano-electric'
+        serviceId: 'kano-electric',
+        tariffRate: DEFAULT_TARIFF_RATES.KEDCO,
+        minPurchase: 1000
       },
       IBEDC: {
         id: 'ibedc',
         code: 'IBEDC',
         name: 'Ibadan Electric',
+        shortName: 'IBEDC',
         logo: 'ibedc.png',
-        serviceId: 'ibadan-electric'
+        serviceId: 'ibadan-electric',
+        tariffRate: DEFAULT_TARIFF_RATES.IBEDC,
+        minPurchase: 1000
       },
       BEDC: {
         id: 'bedc',
         code: 'BEDC',
         name: 'Benin Electric',
+        shortName: 'BEDC',
         logo: 'bedc.png',
-        serviceId: 'benin-electric'
+        serviceId: 'benin-electric',
+        tariffRate: DEFAULT_TARIFF_RATES.BEDC,
+        minPurchase: 1000
       },
       EEDC: {
         id: 'eedc',
         code: 'EEDC',
         name: 'Enugu Electric',
+        shortName: 'EEDC',
         logo: 'eedc.png',
-        serviceId: 'enugu-electric'
+        serviceId: 'enugu-electric',
+        tariffRate: DEFAULT_TARIFF_RATES.EEDC,
+        minPurchase: 1000
       }
     }
   },
@@ -283,13 +327,25 @@ class GenericBillsService {
    */
   static getProviders(billType) {
     const config = this.getConfig(billType);
-    return Object.values(config.providers).map(p => ({
-      id: p.id,
-      code: p.code,
-      name: p.name,
-      logo: p.logo,
-      color: p.color
-    }));
+    return Object.values(config.providers).map(p => {
+      const provider = {
+        id: p.id,
+        code: p.code,
+        name: p.name,
+        shortName: p.shortName || p.name,
+        logo: p.logo,
+        color: p.color
+      };
+
+      // Add electricity-specific provider fields
+      if (billType === BILL_CATEGORIES.ELECTRICITY) {
+        provider.minPurchase = p.minPurchase;
+        provider.tariffRate = p.tariffRate;
+        provider.serviceId = p.serviceId;
+      }
+
+      return provider;
+    });
   }
 
   /**
@@ -321,7 +377,7 @@ class GenericBillsService {
    */
   static getBillTypeInfo(billType) {
     const config = this.getConfig(billType);
-    return {
+    const info = {
       name: config.name,
       description: config.description,
       icon: config.icon,
@@ -331,9 +387,22 @@ class GenericBillsService {
       amountLimits: config.amountLimits,
       hasMeterTypes: config.hasMeterTypes || false,
       meterTypes: config.meterTypes || null,
+      defaultMeterType: config.defaultMeterType || null,
       hasPackages: config.hasPackages || false,
       providers: this.getProviders(billType)
     };
+
+    // For electricity, add VAT rate info
+    if (billType === BILL_CATEGORIES.ELECTRICITY) {
+      info.vatRate = config.vatRate;
+      info.tabs = [
+        { id: 'prepaid', name: 'Prepaid', active: true },
+        { id: 'postpaid', name: 'Postpaid', active: false },
+        { id: 'transactions', name: 'Transactions', active: false }
+      ];
+    }
+
+    return info;
   }
 
   // ==========================================
@@ -379,6 +448,19 @@ class GenericBillsService {
       };
     }
 
+    // For electricity, validate meter type
+    if (billType === BILL_CATEGORIES.ELECTRICITY && options.meterType) {
+      const meterValidation = this.validateMeterType(options.meterType);
+      if (!meterValidation.valid) {
+        return {
+          valid: false,
+          error: meterValidation.error,
+          customerId,
+          provider
+        };
+      }
+    }
+
     // Call provider to validate customer
     const result = await ProviderService.executeWithFailover(
       billType,
@@ -399,13 +481,31 @@ class GenericBillsService {
       };
     }
 
-    return {
+    // Build base response
+    const response = {
       valid: true,
       customerId,
       customerName: result.data.customerName,
       customerDetails: result.data,
       provider
     };
+
+    // Add electricity-specific fields
+    if (billType === BILL_CATEGORIES.ELECTRICITY) {
+      response.meterDetails = {
+        meterNumber: customerId,
+        customerName: result.data.customerName,
+        meterType: options.meterType || 'prepaid',
+        meterCategory: result.data.meterCategory || result.data.tariffClass || 'MD',
+        tariffClass: result.data.tariffClass || 'A-Non MD',
+        serviceAddress: result.data.serviceAddress || result.data.address || '',
+        minPurchase: provider.minPurchase || 1000,
+        tariffRate: result.data.tariffRate || provider.tariffRate,
+        outstandingDebt: result.data.outstandingDebt || 0
+      };
+    }
+
+    return response;
   }
 
   /**
@@ -423,42 +523,121 @@ class GenericBillsService {
   }
 
   // ==========================================
+  // Electricity-Specific Methods
+  // ==========================================
+
+  /**
+   * Calculate electricity units (kWh) from amount
+   * Formula: Units = (Amount - VAT) / Tariff Rate
+   */
+  static calculateElectricityUnits(amount, tariffRate, vatRate = ELECTRICITY_VAT_RATE) {
+    const amountBeforeVat = amount / (1 + vatRate);
+    const units = amountBeforeVat / tariffRate;
+    return Math.round(units * 100) / 100; // Round to 2 decimal places
+  }
+
+  /**
+   * Calculate electricity breakdown
+   * Returns detailed cost breakdown for electricity purchase
+   */
+  static calculateElectricityBreakdown(amount, providerCode) {
+    const tariffRate = DEFAULT_TARIFF_RATES[providerCode] || 209.5;
+    const vatRate = ELECTRICITY_VAT_RATE;
+
+    // Calculate amounts
+    const costOfUnits = amount / (1 + vatRate);
+    const vatAmount = amount - costOfUnits;
+    const unitsPurchased = costOfUnits / tariffRate;
+
+    return {
+      amount,
+      costOfUnits: Math.round(costOfUnits * 100) / 100,
+      vatAmount: Math.round(vatAmount * 100) / 100,
+      vatRate,
+      tariffRate,
+      unitsPurchased: Math.round(unitsPurchased * 100) / 100,
+      unitLabel: 'kWh'
+    };
+  }
+
+  /**
+   * Generate electricity token (mock - real token comes from provider)
+   * Format: XXXX-XXXX-XXXX-XXXX-XXXX
+   */
+  static generateMockElectricityToken() {
+    const segments = [];
+    for (let i = 0; i < 5; i++) {
+      segments.push(Math.floor(1000 + Math.random() * 9000).toString());
+    }
+    return segments.join('-');
+  }
+
+  /**
+   * Validate meter type
+   */
+  static validateMeterType(meterType) {
+    const validTypes = ['prepaid', 'postpaid'];
+    if (!meterType || !validTypes.includes(meterType.toLowerCase())) {
+      return { valid: false, error: 'Invalid meter type. Must be prepaid or postpaid.' };
+    }
+    return { valid: true, meterType: meterType.toLowerCase() };
+  }
+
+  // ==========================================
   // Beneficiary Methods
   // ==========================================
 
   /**
    * Get beneficiaries for a bill type
    */
-  static getBeneficiaries(billType, userId, search = '') {
+  static getBeneficiaries(billType, userId, search = '', options = {}) {
     const config = this.getConfig(billType);
-    const recipients = db.findMany(config.beneficiaryCollection, (r) =>
+    const { meterType } = options;
+
+    let recipients = db.findMany(config.beneficiaryCollection, (r) =>
       r.userId === userId && !r.deleted
     );
 
-    let filtered = recipients;
+    // For electricity, filter by meter type if specified
+    if (billType === BILL_CATEGORIES.ELECTRICITY && meterType) {
+      recipients = recipients.filter(r =>
+        r.meterType === meterType || !r.meterType
+      );
+    }
+
     if (search) {
       const searchLower = search.toLowerCase();
-      filtered = recipients.filter(r =>
+      recipients = recipients.filter(r =>
         r.customerId.toLowerCase().includes(searchLower) ||
         (r.customerName && r.customerName.toLowerCase().includes(searchLower))
       );
     }
 
-    filtered.sort((a, b) => new Date(b.lastUsed || b.createdAt) - new Date(a.lastUsed || a.createdAt));
+    recipients.sort((a, b) => new Date(b.lastUsed || b.createdAt) - new Date(a.lastUsed || a.createdAt));
 
-    return filtered.map(r => ({
-      id: r.id,
-      customerId: r.customerId,
-      customerName: r.customerName,
-      provider: r.provider,
-      lastUsed: r.lastUsed
-    }));
+    return recipients.map(r => {
+      const beneficiary = {
+        id: r.id,
+        customerId: r.customerId,
+        customerName: r.customerName,
+        provider: r.provider,
+        lastUsed: r.lastUsed
+      };
+
+      // Add electricity-specific fields
+      if (billType === BILL_CATEGORIES.ELECTRICITY) {
+        beneficiary.meterType = r.meterType;
+        beneficiary.serviceAddress = r.serviceAddress;
+      }
+
+      return beneficiary;
+    });
   }
 
   /**
    * Add beneficiary
    */
-  static addBeneficiary(billType, userId, customerId, customerName, provider) {
+  static addBeneficiary(billType, userId, customerId, customerName, provider, additionalData = {}) {
     const config = this.getConfig(billType);
 
     // Check if already exists
@@ -467,8 +646,17 @@ class GenericBillsService {
     );
 
     if (existing) {
+      const updates = { updatedAt: new Date() };
       if (customerName && customerName !== existing.customerName) {
-        return db.update(config.beneficiaryCollection, existing.id, { customerName, updatedAt: new Date() });
+        updates.customerName = customerName;
+      }
+      // Update electricity-specific fields
+      if (billType === BILL_CATEGORIES.ELECTRICITY) {
+        if (additionalData.meterType) updates.meterType = additionalData.meterType;
+        if (additionalData.serviceAddress) updates.serviceAddress = additionalData.serviceAddress;
+      }
+      if (Object.keys(updates).length > 1) {
+        return db.update(config.beneficiaryCollection, existing.id, updates);
       }
       return existing;
     }
@@ -488,6 +676,12 @@ class GenericBillsService {
       createdAt: new Date(),
       updatedAt: new Date()
     };
+
+    // Add electricity-specific fields
+    if (billType === BILL_CATEGORIES.ELECTRICITY) {
+      beneficiary.meterType = additionalData.meterType || 'prepaid';
+      beneficiary.serviceAddress = additionalData.serviceAddress || '';
+    }
 
     db.create(config.beneficiaryCollection, beneficiaryId, beneficiary);
     return beneficiary;
@@ -554,6 +748,7 @@ class GenericBillsService {
     const requiresBiometric = this.requiresBiometric(finalAmount);
 
     // Mock wallet balance
+    // TODO: Replace with actual wallet balance when Wallet module is built
     const mockWalletBalance = 1000000;
 
     // Create preview token
@@ -569,6 +764,7 @@ class GenericBillsService {
         id: provider.id,
         code: provider.code,
         name: provider.name,
+        shortName: provider.shortName || provider.name,
         logo: provider.logo
       },
       package: selectedPackage,
@@ -582,9 +778,25 @@ class GenericBillsService {
       expiresAt: new Date(Date.now() + 10 * 60 * 1000)
     };
 
+    // Add electricity-specific preview data
+    if (billType === BILL_CATEGORIES.ELECTRICITY) {
+      const breakdown = this.calculateElectricityBreakdown(finalAmount, providerCode);
+      preview.electricityDetails = {
+        meterNumber: customerId,
+        meterType: meterType || 'prepaid',
+        meterCategory: validation.meterDetails?.meterCategory || 'MD',
+        tariffClass: validation.meterDetails?.tariffClass || 'A-Non MD',
+        serviceAddress: validation.meterDetails?.serviceAddress || '',
+        minPurchase: validation.meterDetails?.minPurchase || 1000,
+        outstandingDebt: validation.meterDetails?.outstandingDebt || 0,
+        ...breakdown
+      };
+    }
+
     db.create(config.previewCollection, previewToken, preview);
 
-    return {
+    // Build response
+    const response = {
       previewToken,
       billType,
       customerId: preview.customerId,
@@ -600,6 +812,21 @@ class GenericBillsService {
         ? 'This transaction requires both PIN and biometric verification'
         : null
     };
+
+    // Add electricity-specific fields to response
+    if (billType === BILL_CATEGORIES.ELECTRICITY) {
+      response.meterType = preview.electricityDetails.meterType;
+      response.meterCategory = preview.electricityDetails.meterCategory;
+      response.serviceAddress = preview.electricityDetails.serviceAddress;
+      response.minPurchase = preview.electricityDetails.minPurchase;
+      response.unitsPurchased = preview.electricityDetails.unitsPurchased;
+      response.tariffRate = preview.electricityDetails.tariffRate;
+      response.vatAmount = preview.electricityDetails.vatAmount;
+      response.costOfUnits = preview.electricityDetails.costOfUnits;
+      response.outstandingDebt = preview.electricityDetails.outstandingDebt;
+    }
+
+    return response;
   }
 
   /**
@@ -661,6 +888,23 @@ class GenericBillsService {
       updatedAt: new Date()
     };
 
+    // Add electricity-specific fields
+    if (billType === BILL_CATEGORIES.ELECTRICITY && preview.electricityDetails) {
+      transaction.electricityDetails = {
+        meterNumber: preview.electricityDetails.meterNumber,
+        meterType: preview.electricityDetails.meterType,
+        meterCategory: preview.electricityDetails.meterCategory,
+        tariffClass: preview.electricityDetails.tariffClass,
+        serviceAddress: preview.electricityDetails.serviceAddress,
+        tariffRate: preview.electricityDetails.tariffRate,
+        unitsPurchased: preview.electricityDetails.unitsPurchased,
+        costOfUnits: preview.electricityDetails.costOfUnits,
+        vatAmount: preview.electricityDetails.vatAmount,
+        vatRate: preview.electricityDetails.vatRate,
+        outstandingDebt: preview.electricityDetails.outstandingDebt
+      };
+    }
+
     db.create(config.collection, transactionId, transaction);
 
     // Call external provider
@@ -678,18 +922,39 @@ class GenericBillsService {
       }
     );
 
-    // Update transaction
-    const finalTransaction = db.update(config.collection, transactionId, {
+    // Prepare update data
+    const updateData = {
       status: providerResult.success ? TRANSACTION_STATUS.COMPLETED : TRANSACTION_STATUS.FAILED,
       providerReference: providerResult.data?.providerReference || null,
       providerResponse: providerResult,
       providerUsed: providerResult.provider?.name || null,
-      token: providerResult.data?.token || null, // For electricity
       completedAt: providerResult.success ? new Date() : null,
       failedAt: providerResult.success ? null : new Date(),
       failureReason: providerResult.success ? null : (providerResult.error || 'Provider error'),
       updatedAt: new Date()
-    });
+    };
+
+    // Handle electricity token for prepaid meters
+    if (billType === BILL_CATEGORIES.ELECTRICITY && providerResult.success) {
+      // Token comes from provider for prepaid, or generate mock for testing
+      const token = providerResult.data?.token ||
+        (preview.meterType === 'prepaid' ? this.generateMockElectricityToken() : null);
+      updateData.token = token;
+
+      // Update electricity details with any additional provider data
+      if (transaction.electricityDetails) {
+        updateData.electricityDetails = {
+          ...transaction.electricityDetails,
+          token: token,
+          unitsPurchased: providerResult.data?.units || transaction.electricityDetails.unitsPurchased
+        };
+      }
+    } else {
+      updateData.token = providerResult.data?.token || null;
+    }
+
+    // Update transaction
+    const finalTransaction = db.update(config.collection, transactionId, updateData);
 
     // Update beneficiary last used
     if (providerResult.success) {
@@ -703,7 +968,11 @@ class GenericBillsService {
         successMessage = `₦${preview.amount.toLocaleString()} has been successfully added to your ${preview.provider.name} Wallet`;
         break;
       case BILL_CATEGORIES.ELECTRICITY:
-        successMessage = `Electricity token generated for meter ${preview.customerId}`;
+        if (preview.meterType === 'prepaid') {
+          successMessage = `Electricity token generated for meter ${preview.customerId}`;
+        } else {
+          successMessage = `Bill payment for ${preview.provider.name} recharge for Meter Number ${preview.customerId}`;
+        }
         break;
       case BILL_CATEGORIES.TV:
         successMessage = `${preview.package?.name || 'Subscription'} activated for ${preview.customerId}`;
@@ -712,22 +981,39 @@ class GenericBillsService {
         successMessage = `Payment successful for ${preview.customerId}`;
     }
 
+    // Build transaction response
+    const transactionResponse = {
+      id: finalTransaction.id,
+      reference: finalTransaction.reference,
+      customerId: finalTransaction.customerId,
+      customerName: finalTransaction.customerName,
+      provider: finalTransaction.provider,
+      package: finalTransaction.package,
+      amount: finalTransaction.amount,
+      cashback: finalTransaction.cashback,
+      status: finalTransaction.status,
+      token: finalTransaction.token,
+      providerUsed: finalTransaction.providerUsed,
+      createdAt: finalTransaction.createdAt
+    };
+
+    // Add electricity-specific fields to response
+    if (billType === BILL_CATEGORIES.ELECTRICITY && finalTransaction.electricityDetails) {
+      transactionResponse.meterType = finalTransaction.electricityDetails.meterType;
+      transactionResponse.meterCategory = finalTransaction.electricityDetails.meterCategory;
+      transactionResponse.serviceAddress = finalTransaction.electricityDetails.serviceAddress;
+      transactionResponse.tariffClass = finalTransaction.electricityDetails.tariffClass;
+      transactionResponse.tariffRate = finalTransaction.electricityDetails.tariffRate;
+      transactionResponse.unitsPurchased = finalTransaction.electricityDetails.unitsPurchased;
+      transactionResponse.costOfUnits = finalTransaction.electricityDetails.costOfUnits;
+      transactionResponse.vatAmount = finalTransaction.electricityDetails.vatAmount;
+      transactionResponse.vatRate = finalTransaction.electricityDetails.vatRate;
+      transactionResponse.outstandingDebt = finalTransaction.electricityDetails.outstandingDebt;
+    }
+
     return {
       success: providerResult.success,
-      transaction: {
-        id: finalTransaction.id,
-        reference: finalTransaction.reference,
-        customerId: finalTransaction.customerId,
-        customerName: finalTransaction.customerName,
-        provider: finalTransaction.provider,
-        package: finalTransaction.package,
-        amount: finalTransaction.amount,
-        cashback: finalTransaction.cashback,
-        status: finalTransaction.status,
-        token: finalTransaction.token,
-        providerUsed: finalTransaction.providerUsed,
-        createdAt: finalTransaction.createdAt
-      },
+      transaction: transactionResponse,
       message: providerResult.success
         ? successMessage
         : providerResult.error || 'Payment failed. Please try again.'
@@ -877,7 +1163,7 @@ class GenericBillsService {
       throw new NotFoundError('Transaction not found');
     }
 
-    return {
+    const details = {
       id: transaction.id,
       reference: transaction.reference,
       type: config.name,
@@ -886,6 +1172,7 @@ class GenericBillsService {
       customerName: transaction.customerName,
       provider: transaction.provider,
       package: transaction.package,
+      meterType: transaction.meterType,
       amount: transaction.amount,
       cashback: transaction.cashback,
       status: transaction.status,
@@ -897,6 +1184,26 @@ class GenericBillsService {
       failedAt: transaction.failedAt,
       failureReason: transaction.failureReason
     };
+
+    // Add electricity-specific details
+    if (billType === BILL_CATEGORIES.ELECTRICITY && transaction.electricityDetails) {
+      details.electricityDetails = {
+        meterNumber: transaction.electricityDetails.meterNumber,
+        meterType: transaction.electricityDetails.meterType,
+        meterCategory: transaction.electricityDetails.meterCategory,
+        tariffClass: transaction.electricityDetails.tariffClass,
+        serviceAddress: transaction.electricityDetails.serviceAddress,
+        tariffRate: transaction.electricityDetails.tariffRate,
+        unitsPurchased: transaction.electricityDetails.unitsPurchased,
+        costOfUnits: transaction.electricityDetails.costOfUnits,
+        vatAmount: transaction.electricityDetails.vatAmount,
+        vatRate: transaction.electricityDetails.vatRate,
+        outstandingDebt: transaction.electricityDetails.outstandingDebt,
+        token: transaction.electricityDetails.token || transaction.token
+      };
+    }
+
+    return details;
   }
 
   /**
@@ -906,12 +1213,32 @@ class GenericBillsService {
     const config = this.getConfig(billType);
     const transaction = this.getTransactionDetails(billType, userId, transactionId);
 
+    // Determine status display
+    let statusDisplay = transaction.status;
+    let statusColor = '#000000';
+    if (transaction.status === TRANSACTION_STATUS.COMPLETED) {
+      statusDisplay = 'Successful';
+      statusColor = '#22C55E'; // Green
+    } else if (transaction.status === TRANSACTION_STATUS.PENDING || transaction.status === TRANSACTION_STATUS.PROCESSING) {
+      statusDisplay = 'Pending';
+      statusColor = '#F59E0B'; // Amber
+    } else if (transaction.status === TRANSACTION_STATUS.FAILED) {
+      statusDisplay = 'Failed';
+      statusColor = '#EF4444'; // Red
+    }
+
+    // Build receipt based on bill type
+    if (billType === BILL_CATEGORIES.ELECTRICITY) {
+      return this.generateElectricityReceipt(transaction, statusDisplay, statusColor);
+    }
+
+    // Default receipt format for other bill types
     const details = [
-      { label: 'Status', value: transaction.status === TRANSACTION_STATUS.COMPLETED ? 'Successful' : transaction.status },
+      { label: 'Status', value: statusDisplay, color: statusColor },
       { label: config.customerIdLabel, value: transaction.customerId },
       { label: 'Provider', value: transaction.provider.name, icon: transaction.provider.logo },
       { label: 'Amount Equivalent', value: `₦${transaction.amount.toLocaleString()}` },
-      { label: 'Reference', value: transaction.reference },
+      { label: 'Transaction ID', value: transaction.reference, copyable: true },
       {
         label: 'Timestamp',
         value: new Date(transaction.createdAt).toLocaleString('en-US', {
@@ -925,9 +1252,9 @@ class GenericBillsService {
       }
     ];
 
-    // Add token for electricity
+    // Add token for prepaid
     if (transaction.token) {
-      details.splice(2, 0, { label: 'Token', value: transaction.token });
+      details.splice(1, 0, { label: 'Token', value: transaction.token, copyable: true });
     }
 
     // Add package for TV
@@ -939,7 +1266,87 @@ class GenericBillsService {
       receiptId: `RCP${Date.now()}`,
       amount: transaction.amount,
       formattedAmount: `₦${transaction.amount.toLocaleString()}`,
+      status: statusDisplay,
+      statusColor,
       details,
+      generatedAt: new Date().toISOString(),
+      supportEmail: 'disputes@Zenaex.com',
+      branding: {
+        name: 'ZENAEX',
+        message: 'Any issues with this transaction? Contact us at disputes@Zenaex.com'
+      }
+    };
+  }
+
+  /**
+   * Generate electricity-specific receipt
+   * Matches the UI design with all electricity fields
+   */
+  static generateElectricityReceipt(transaction, statusDisplay, statusColor) {
+    const elecDetails = transaction.electricityDetails || {};
+
+    const details = [
+      { label: 'Status', value: statusDisplay, color: statusColor },
+      { label: 'Meter Type', value: elecDetails.meterType || transaction.meterType || 'Prepaid', capitalize: true },
+      { label: 'Meter Number', value: transaction.customerId },
+      { label: 'Customer Name', value: transaction.customerName || 'N/A' },
+      { label: 'Provider', value: transaction.provider.name, icon: transaction.provider.logo },
+      { label: 'Units Purchased', value: `${elecDetails.unitsPurchased || 0} kWh` },
+      { label: 'Service Address', value: elecDetails.serviceAddress || 'N/A' },
+      { label: 'Amount Equivalent', value: `₦${transaction.amount.toLocaleString()}` },
+      { label: 'Transaction ID', value: transaction.reference, copyable: true },
+      {
+        label: 'Timestamp',
+        value: new Date(transaction.createdAt).toLocaleString('en-US', {
+          day: '2-digit',
+          month: '2-digit',
+          year: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: true
+        })
+      }
+    ];
+
+    // Add token for prepaid meters (at position 1, after status)
+    if (transaction.token || elecDetails.token) {
+      details.splice(1, 0, {
+        label: 'Token',
+        value: transaction.token || elecDetails.token,
+        copyable: true,
+        highlight: true
+      });
+    }
+
+    // Extended details for transaction detail view
+    const extendedDetails = [
+      { label: 'Type', value: 'Electricity' },
+      { label: 'Meter Type', value: elecDetails.meterType || transaction.meterType || 'Prepaid', capitalize: true },
+      { label: 'Recipient', value: transaction.provider.name },
+      { label: 'Meter Number', value: transaction.customerId },
+      { label: 'Customer Name', value: transaction.customerName || 'N/A' },
+      { label: 'Service Address', value: elecDetails.serviceAddress || 'N/A' },
+      { label: 'Tariff Class', value: elecDetails.tariffClass || 'A-Non MD' },
+      { label: 'Tariff Rate', value: elecDetails.tariffRate ? `₦${elecDetails.tariffRate}/kWh` : 'N/A' },
+      { label: 'Units Purchased', value: `${elecDetails.unitsPurchased || 0} kWh` },
+      { label: 'VAT Amount', value: `₦${(elecDetails.vatAmount || 0).toLocaleString()}` },
+      { label: 'VAT Rate', value: elecDetails.vatRate || ELECTRICITY_VAT_RATE },
+      { label: 'Cost of Units', value: `₦${(elecDetails.costOfUnits || 0).toLocaleString()}` },
+      { label: 'Outstanding Debt', value: `₦${(elecDetails.outstandingDebt || 0).toLocaleString()}` },
+      { label: 'Transaction ID', value: transaction.reference, copyable: true }
+    ];
+
+    return {
+      receiptId: `RCP${Date.now()}`,
+      amount: transaction.amount,
+      formattedAmount: `₦${transaction.amount.toLocaleString()}`,
+      status: statusDisplay,
+      statusColor,
+      token: transaction.token || elecDetails.token,
+      meterType: elecDetails.meterType || transaction.meterType,
+      details,
+      extendedDetails,
+      description: `Bill payment for ${transaction.provider.name} recharge for Meter Number ${transaction.customerId}`,
       generatedAt: new Date().toISOString(),
       supportEmail: 'disputes@Zenaex.com',
       branding: {
