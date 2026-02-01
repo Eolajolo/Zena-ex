@@ -1,5 +1,6 @@
 const PaymentService = require('./payment.service');
 const AirtimeService = require('./airtime.service');
+const DataService = require('./data.service');
 const BillsTransactionService = require('./bills.transaction.service');
 const ProviderService = require('./provider.service');
 const { logger } = require('../../shared/utils');
@@ -226,6 +227,300 @@ const reportAirtimeIssue = async (req, res, next) => {
     });
 
     logger.info('Airtime issue reported', {
+      userId: req.user.id,
+      transactionId,
+      issueId: result.issueId
+    });
+
+    res.status(200).json({
+      success: true,
+      data: result
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ==========================================
+// Data (Mobile Data) Endpoints
+// ==========================================
+
+/**
+ * Get data providers and bundles
+ * GET /api/payment/data/providers
+ */
+const getDataProviders = async (req, res, next) => {
+  try {
+    const providers = DataService.getProviders();
+    const categories = DataService.getCategories();
+
+    res.status(200).json({
+      success: true,
+      data: {
+        providers,
+        categories
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get data bundles for a provider
+ * GET /api/payment/data/bundles/:providerCode
+ */
+const getDataBundles = async (req, res, next) => {
+  try {
+    const { providerCode } = req.params;
+    const { category } = req.query;
+
+    const bundles = DataService.getBundles(providerCode, category);
+
+    res.status(200).json({
+      success: true,
+      data: bundles
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Validate phone number for data
+ * POST /api/payment/data/validate-phone
+ */
+const validateDataPhone = async (req, res, next) => {
+  try {
+    const { phoneNumber } = req.body;
+    const result = DataService.validatePhoneNumber(phoneNumber);
+
+    res.status(200).json({
+      success: true,
+      data: result
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get recent phone numbers and transactions for data
+ * GET /api/payment/data/recent
+ */
+const getRecentDataNumbers = async (req, res, next) => {
+  try {
+    const limit = parseInt(req.query.limit) || 5;
+    const recentNumbers = DataService.getRecentPhoneNumbers(req.user.id, limit);
+    const recentTransactions = DataService.getRecentTransactions(req.user.id, limit);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        recentNumbers,
+        recentTransactions
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get data beneficiaries
+ * GET /api/payment/data/beneficiaries
+ */
+const getDataBeneficiaries = async (req, res, next) => {
+  try {
+    const { search } = req.query;
+    const beneficiaries = DataService.getBeneficiaries(req.user.id, search);
+
+    res.status(200).json({
+      success: true,
+      data: { beneficiaries }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Add data beneficiary
+ * POST /api/payment/data/beneficiaries
+ */
+const addDataBeneficiary = async (req, res, next) => {
+  try {
+    const { phoneNumber, name } = req.body;
+    const beneficiary = DataService.addBeneficiary(req.user.id, phoneNumber, name);
+
+    res.status(201).json({
+      success: true,
+      message: 'Beneficiary added',
+      data: beneficiary
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Initiate data purchase (get preview)
+ * POST /api/payment/data/initiate
+ */
+const initiateDataPurchase = async (req, res, next) => {
+  try {
+    const { phoneNumber, providerCode, bundleCode } = req.body;
+
+    const preview = await DataService.initiateDataPurchase(req.user.id, {
+      phoneNumber,
+      providerCode,
+      bundleCode
+    });
+
+    logger.info('Data purchase initiated', {
+      userId: req.user.id,
+      bundle: preview.bundle.code,
+      provider: preview.provider.code
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Review your transaction details',
+      data: preview
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Confirm and execute data purchase
+ * POST /api/payment/data/purchase
+ */
+const purchaseData = async (req, res, next) => {
+  try {
+    const { previewToken, transactionPin, biometricToken } = req.body;
+
+    const result = await DataService.purchaseData(
+      req.user.id,
+      previewToken,
+      transactionPin,
+      biometricToken
+    );
+
+    logger.info('Data purchase completed', {
+      userId: req.user.id,
+      transactionId: result.transaction.id,
+      success: result.success
+    });
+
+    res.status(200).json({
+      success: result.success,
+      message: result.message,
+      data: result.transaction
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get data transaction history
+ * GET /api/payment/data/transactions
+ */
+const getDataHistory = async (req, res, next) => {
+  try {
+    const { provider, status, search, startDate, endDate, limit, offset } = req.query;
+
+    const result = DataService.getTransactionHistory(req.user.id, {
+      providerCode: provider,
+      status,
+      search,
+      startDate,
+      endDate,
+      limit: parseInt(limit) || 50,
+      offset: parseInt(offset) || 0
+    });
+
+    res.status(200).json({
+      success: true,
+      data: result
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get single data transaction details
+ * GET /api/payment/data/transactions/:transactionId
+ */
+const getDataTransaction = async (req, res, next) => {
+  try {
+    const { transactionId } = req.params;
+    const transaction = DataService.getTransactionDetails(req.user.id, transactionId);
+
+    res.status(200).json({
+      success: true,
+      data: transaction
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Generate data transaction receipt
+ * GET /api/payment/data/transactions/:transactionId/receipt
+ */
+const getDataReceipt = async (req, res, next) => {
+  try {
+    const { transactionId } = req.params;
+    const receipt = DataService.generateReceipt(req.user.id, transactionId);
+
+    res.status(200).json({
+      success: true,
+      data: receipt
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Redo a data transaction
+ * POST /api/payment/data/transactions/:transactionId/redo
+ */
+const redoDataTransaction = async (req, res, next) => {
+  try {
+    const { transactionId } = req.params;
+    const preview = await DataService.redoTransaction(req.user.id, transactionId);
+
+    res.status(200).json({
+      success: true,
+      message: 'Transaction ready to redo',
+      data: preview
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Report issue with data transaction
+ * POST /api/payment/data/transactions/:transactionId/report
+ */
+const reportDataIssue = async (req, res, next) => {
+  try {
+    const { transactionId } = req.params;
+    const { type, description } = req.body;
+
+    const result = DataService.reportIssue(req.user.id, transactionId, {
+      type,
+      description
+    });
+
+    logger.info('Data issue reported', {
       userId: req.user.id,
       transactionId,
       issueId: result.issueId
@@ -609,6 +904,21 @@ module.exports = {
   getAirtimeReceipt,
   redoAirtimeTransaction,
   reportAirtimeIssue,
+
+  // Data (Mobile Data)
+  getDataProviders,
+  getDataBundles,
+  validateDataPhone,
+  getRecentDataNumbers,
+  getDataBeneficiaries,
+  addDataBeneficiary,
+  initiateDataPurchase,
+  purchaseData,
+  getDataHistory,
+  getDataTransaction,
+  getDataReceipt,
+  redoDataTransaction,
+  reportDataIssue,
 
   // Unified Bills
   getAllBillsHistory,
