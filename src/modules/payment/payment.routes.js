@@ -68,6 +68,79 @@ router.post('/data/transactions/:transactionId/redo', paymentController.redoData
 router.post('/data/transactions/:transactionId/report', paymentController.reportDataIssue);
 
 // ==========================================
+// Betting Routes
+// ==========================================
+
+// Providers and validation
+router.get('/betting/providers', paymentController.getBettingProviders);
+router.post('/betting/validate', paymentController.validateBettingCustomer);
+
+// Beneficiaries
+router.get('/betting/beneficiaries', paymentController.getBettingBeneficiaries);
+router.post('/betting/beneficiaries', paymentController.addBettingBeneficiary);
+
+// Betting wallet funding flow
+router.post('/betting/initiate', rateLimiters.transactions, paymentController.initiateBettingPurchase);
+router.post('/betting/purchase', rateLimiters.transactions, paymentController.purchaseBetting);
+
+// Betting transaction history
+router.get('/betting/recent', paymentController.getRecentBettingTransactions);
+router.get('/betting/transactions', paymentController.getBettingHistory);
+router.get('/betting/transactions/:transactionId', paymentController.getBettingTransaction);
+router.get('/betting/transactions/:transactionId/receipt', paymentController.getBettingReceipt);
+router.post('/betting/transactions/:transactionId/redo', paymentController.redoBettingTransaction);
+router.post('/betting/transactions/:transactionId/report', paymentController.reportBettingIssue);
+
+// ==========================================
+// Electricity Routes
+// ==========================================
+
+// Providers and validation
+router.get('/electricity/providers', paymentController.getElectricityProviders);
+router.post('/electricity/validate', paymentController.validateElectricityCustomer);
+
+// Beneficiaries
+router.get('/electricity/beneficiaries', paymentController.getElectricityBeneficiaries);
+router.post('/electricity/beneficiaries', paymentController.addElectricityBeneficiary);
+
+// Electricity purchase flow
+router.post('/electricity/initiate', rateLimiters.transactions, paymentController.initiateElectricityPurchase);
+router.post('/electricity/purchase', rateLimiters.transactions, paymentController.purchaseElectricity);
+
+// Electricity transaction history
+router.get('/electricity/recent', paymentController.getRecentElectricityTransactions);
+router.get('/electricity/transactions', paymentController.getElectricityHistory);
+router.get('/electricity/transactions/:transactionId', paymentController.getElectricityTransaction);
+router.get('/electricity/transactions/:transactionId/receipt', paymentController.getElectricityReceipt);
+router.post('/electricity/transactions/:transactionId/redo', paymentController.redoElectricityTransaction);
+router.post('/electricity/transactions/:transactionId/report', paymentController.reportElectricityIssue);
+
+// ==========================================
+// Cable TV Routes
+// ==========================================
+
+// Providers, packages and validation
+router.get('/tv/providers', paymentController.getTvProviders);
+router.get('/tv/packages/:providerCode', paymentController.getTvPackages);
+router.post('/tv/validate', paymentController.validateTvCustomer);
+
+// Beneficiaries
+router.get('/tv/beneficiaries', paymentController.getTvBeneficiaries);
+router.post('/tv/beneficiaries', paymentController.addTvBeneficiary);
+
+// TV subscription flow
+router.post('/tv/initiate', rateLimiters.transactions, paymentController.initiateTvPurchase);
+router.post('/tv/purchase', rateLimiters.transactions, paymentController.purchaseTv);
+
+// TV transaction history
+router.get('/tv/recent', paymentController.getRecentTvTransactions);
+router.get('/tv/transactions', paymentController.getTvHistory);
+router.get('/tv/transactions/:transactionId', paymentController.getTvTransaction);
+router.get('/tv/transactions/:transactionId/receipt', paymentController.getTvReceipt);
+router.post('/tv/transactions/:transactionId/redo', paymentController.redoTvTransaction);
+router.post('/tv/transactions/:transactionId/report', paymentController.reportTvIssue);
+
+// ==========================================
 // Unified Bills Transaction Routes
 // ==========================================
 

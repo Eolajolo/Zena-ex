@@ -1,9 +1,11 @@
 const PaymentService = require('./payment.service');
 const AirtimeService = require('./airtime.service');
 const DataService = require('./data.service');
+const GenericBillsService = require('./generic-bills.service');
 const BillsTransactionService = require('./bills.transaction.service');
 const ProviderService = require('./provider.service');
 const { logger } = require('../../shared/utils');
+const { BILL_CATEGORIES } = require('../../shared/constants');
 
 // ==========================================
 // Airtime Endpoints
@@ -892,6 +894,352 @@ const getBanks = async (req, res, next) => {
   }
 };
 
+// ==========================================
+// Generic Bills Endpoints (Betting, Electricity, Cable TV)
+// ==========================================
+
+/**
+ * Factory function to create bill type handlers
+ * This reduces code duplication for similar bill types
+ */
+const createBillTypeHandlers = (billType) => ({
+  /**
+   * Get providers for bill type
+   */
+  getProviders: async (req, res, next) => {
+    try {
+      const info = GenericBillsService.getBillTypeInfo(billType);
+
+      res.status(200).json({
+        success: true,
+        data: info
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  /**
+   * Get packages for a provider (TV only)
+   */
+  getPackages: async (req, res, next) => {
+    try {
+      const { providerCode } = req.params;
+      const packages = GenericBillsService.getPackages(billType, providerCode);
+
+      res.status(200).json({
+        success: true,
+        data: { packages }
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  /**
+   * Validate customer
+   */
+  validateCustomer: async (req, res, next) => {
+    try {
+      const { customerId, providerCode, meterType } = req.body;
+      const result = await GenericBillsService.validateCustomer(
+        billType,
+        providerCode,
+        customerId,
+        { meterType }
+      );
+
+      res.status(200).json({
+        success: true,
+        data: result
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  /**
+   * Get beneficiaries
+   */
+  getBeneficiaries: async (req, res, next) => {
+    try {
+      const { search } = req.query;
+      const beneficiaries = GenericBillsService.getBeneficiaries(billType, req.user.id, search);
+
+      res.status(200).json({
+        success: true,
+        data: { beneficiaries }
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  /**
+   * Add beneficiary
+   */
+  addBeneficiary: async (req, res, next) => {
+    try {
+      const { customerId, customerName, providerCode } = req.body;
+      const provider = GenericBillsService.getProvider(billType, providerCode);
+      const beneficiary = GenericBillsService.addBeneficiary(
+        billType,
+        req.user.id,
+        customerId,
+        customerName,
+        provider
+      );
+
+      res.status(201).json({
+        success: true,
+        message: 'Beneficiary added',
+        data: beneficiary
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  /**
+   * Initiate purchase (get preview)
+   */
+  initiatePurchase: async (req, res, next) => {
+    try {
+      const { customerId, providerCode, amount, packageCode, meterType } = req.body;
+
+      const preview = await GenericBillsService.initiatePurchase(billType, req.user.id, {
+        customerId,
+        providerCode,
+        amount,
+        packageCode,
+        meterType
+      });
+
+      logger.info(`${billType} purchase initiated`, {
+        userId: req.user.id,
+        provider: preview.provider.code,
+        amount: preview.amount
+      });
+
+      res.status(200).json({
+        success: true,
+        message: 'Review your transaction details',
+        data: preview
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  /**
+   * Confirm and execute purchase
+   */
+  purchase: async (req, res, next) => {
+    try {
+      const { previewToken, transactionPin, biometricToken } = req.body;
+
+      const result = await GenericBillsService.purchase(
+        billType,
+        req.user.id,
+        previewToken,
+        transactionPin,
+        biometricToken
+      );
+
+      logger.info(`${billType} purchase completed`, {
+        userId: req.user.id,
+        transactionId: result.transaction.id,
+        success: result.success
+      });
+
+      res.status(200).json({
+        success: result.success,
+        message: result.message,
+        data: result.transaction
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  /**
+   * Get recent transactions
+   */
+  getRecentTransactions: async (req, res, next) => {
+    try {
+      const limit = parseInt(req.query.limit) || 5;
+      const transactions = GenericBillsService.getRecentTransactions(billType, req.user.id, limit);
+
+      res.status(200).json({
+        success: true,
+        data: { transactions }
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  /**
+   * Get transaction history
+   */
+  getTransactionHistory: async (req, res, next) => {
+    try {
+      const { provider, status, search, startDate, endDate, limit, offset } = req.query;
+
+      const result = GenericBillsService.getTransactionHistory(billType, req.user.id, {
+        providerCode: provider,
+        status,
+        search,
+        startDate,
+        endDate,
+        limit: parseInt(limit) || 50,
+        offset: parseInt(offset) || 0
+      });
+
+      res.status(200).json({
+        success: true,
+        data: result
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  /**
+   * Get single transaction details
+   */
+  getTransaction: async (req, res, next) => {
+    try {
+      const { transactionId } = req.params;
+      const transaction = GenericBillsService.getTransactionDetails(billType, req.user.id, transactionId);
+
+      res.status(200).json({
+        success: true,
+        data: transaction
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  /**
+   * Generate receipt
+   */
+  getReceipt: async (req, res, next) => {
+    try {
+      const { transactionId } = req.params;
+      const receipt = GenericBillsService.generateReceipt(billType, req.user.id, transactionId);
+
+      res.status(200).json({
+        success: true,
+        data: receipt
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  /**
+   * Redo transaction
+   */
+  redoTransaction: async (req, res, next) => {
+    try {
+      const { transactionId } = req.params;
+      const preview = await GenericBillsService.redoTransaction(billType, req.user.id, transactionId);
+
+      res.status(200).json({
+        success: true,
+        message: 'Transaction ready to redo',
+        data: preview
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  /**
+   * Report issue
+   */
+  reportIssue: async (req, res, next) => {
+    try {
+      const { transactionId } = req.params;
+      const { type, description } = req.body;
+
+      const result = GenericBillsService.reportIssue(billType, req.user.id, transactionId, {
+        type,
+        description
+      });
+
+      logger.info(`${billType} issue reported`, {
+        userId: req.user.id,
+        transactionId,
+        issueId: result.issueId
+      });
+
+      res.status(200).json({
+        success: true,
+        data: result
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+});
+
+// Create handlers for each bill type
+const bettingHandlers = createBillTypeHandlers(BILL_CATEGORIES.BETTING);
+const electricityHandlers = createBillTypeHandlers(BILL_CATEGORIES.ELECTRICITY);
+const tvHandlers = createBillTypeHandlers(BILL_CATEGORIES.TV);
+
+// ==========================================
+// Betting Endpoints
+// ==========================================
+const getBettingProviders = bettingHandlers.getProviders;
+const validateBettingCustomer = bettingHandlers.validateCustomer;
+const getBettingBeneficiaries = bettingHandlers.getBeneficiaries;
+const addBettingBeneficiary = bettingHandlers.addBeneficiary;
+const initiateBettingPurchase = bettingHandlers.initiatePurchase;
+const purchaseBetting = bettingHandlers.purchase;
+const getRecentBettingTransactions = bettingHandlers.getRecentTransactions;
+const getBettingHistory = bettingHandlers.getTransactionHistory;
+const getBettingTransaction = bettingHandlers.getTransaction;
+const getBettingReceipt = bettingHandlers.getReceipt;
+const redoBettingTransaction = bettingHandlers.redoTransaction;
+const reportBettingIssue = bettingHandlers.reportIssue;
+
+// ==========================================
+// Electricity Endpoints
+// ==========================================
+const getElectricityProviders = electricityHandlers.getProviders;
+const validateElectricityCustomer = electricityHandlers.validateCustomer;
+const getElectricityBeneficiaries = electricityHandlers.getBeneficiaries;
+const addElectricityBeneficiary = electricityHandlers.addBeneficiary;
+const initiateElectricityPurchase = electricityHandlers.initiatePurchase;
+const purchaseElectricity = electricityHandlers.purchase;
+const getRecentElectricityTransactions = electricityHandlers.getRecentTransactions;
+const getElectricityHistory = electricityHandlers.getTransactionHistory;
+const getElectricityTransaction = electricityHandlers.getTransaction;
+const getElectricityReceipt = electricityHandlers.getReceipt;
+const redoElectricityTransaction = electricityHandlers.redoTransaction;
+const reportElectricityIssue = electricityHandlers.reportIssue;
+
+// ==========================================
+// Cable TV Endpoints
+// ==========================================
+const getTvProviders = tvHandlers.getProviders;
+const getTvPackages = tvHandlers.getPackages;
+const validateTvCustomer = tvHandlers.validateCustomer;
+const getTvBeneficiaries = tvHandlers.getBeneficiaries;
+const addTvBeneficiary = tvHandlers.addBeneficiary;
+const initiateTvPurchase = tvHandlers.initiatePurchase;
+const purchaseTv = tvHandlers.purchase;
+const getRecentTvTransactions = tvHandlers.getRecentTransactions;
+const getTvHistory = tvHandlers.getTransactionHistory;
+const getTvTransaction = tvHandlers.getTransaction;
+const getTvReceipt = tvHandlers.getReceipt;
+const redoTvTransaction = tvHandlers.redoTransaction;
+const reportTvIssue = tvHandlers.reportIssue;
+
 module.exports = {
   // Airtime
   getAirtimeProviders,
@@ -919,6 +1267,49 @@ module.exports = {
   getDataReceipt,
   redoDataTransaction,
   reportDataIssue,
+
+  // Betting
+  getBettingProviders,
+  validateBettingCustomer,
+  getBettingBeneficiaries,
+  addBettingBeneficiary,
+  initiateBettingPurchase,
+  purchaseBetting,
+  getRecentBettingTransactions,
+  getBettingHistory,
+  getBettingTransaction,
+  getBettingReceipt,
+  redoBettingTransaction,
+  reportBettingIssue,
+
+  // Electricity
+  getElectricityProviders,
+  validateElectricityCustomer,
+  getElectricityBeneficiaries,
+  addElectricityBeneficiary,
+  initiateElectricityPurchase,
+  purchaseElectricity,
+  getRecentElectricityTransactions,
+  getElectricityHistory,
+  getElectricityTransaction,
+  getElectricityReceipt,
+  redoElectricityTransaction,
+  reportElectricityIssue,
+
+  // Cable TV
+  getTvProviders,
+  getTvPackages,
+  validateTvCustomer,
+  getTvBeneficiaries,
+  addTvBeneficiary,
+  initiateTvPurchase,
+  purchaseTv,
+  getRecentTvTransactions,
+  getTvHistory,
+  getTvTransaction,
+  getTvReceipt,
+  redoTvTransaction,
+  reportTvIssue,
 
   // Unified Bills
   getAllBillsHistory,
