@@ -168,34 +168,6 @@ const NIGERIAN_BANKS = [
   { code: '999994', name: 'Moniepoint', logo: 'moniepoint.png' }
 ];
 
-// Ghana banks
-const GHANA_BANKS = [
-  { code: 'GCB', name: 'GCB Bank', logo: 'gcb.png' },
-  { code: 'ECOBANK_GH', name: 'Ecobank Ghana', logo: 'ecobank.png' },
-  { code: 'ABSA_GH', name: 'Absa Bank Ghana', logo: 'absa.png' },
-  { code: 'STANBIC_GH', name: 'Stanbic Bank Ghana', logo: 'stanbic.png' },
-  { code: 'CAL', name: 'CAL Bank', logo: 'cal.png' },
-  { code: 'FIDELITY_GH', name: 'Fidelity Bank Ghana', logo: 'fidelity.png' }
-];
-
-// Kenya banks
-const KENYA_BANKS = [
-  { code: 'EQUITY_KE', name: 'Equity Bank', logo: 'equity.png' },
-  { code: 'KCB', name: 'Kenya Commercial Bank', logo: 'kcb.png' },
-  { code: 'COOP_KE', name: 'Co-operative Bank', logo: 'coop.png' },
-  { code: 'ABSA_KE', name: 'Absa Bank Kenya', logo: 'absa.png' },
-  { code: 'STANBIC_KE', name: 'Stanbic Bank Kenya', logo: 'stanbic.png' }
-];
-
-// South Africa banks
-const SOUTH_AFRICA_BANKS = [
-  { code: 'ABSA_ZA', name: 'Absa Bank', logo: 'absa.png' },
-  { code: 'FNB', name: 'First National Bank', logo: 'fnb.png' },
-  { code: 'NEDBANK', name: 'Nedbank', logo: 'nedbank.png' },
-  { code: 'STANDARD_ZA', name: 'Standard Bank', logo: 'standard.png' },
-  { code: 'CAPITEC', name: 'Capitec Bank', logo: 'capitec.png' }
-];
-
 // Mobile Money providers
 const MOBILE_MONEY_PROVIDERS = {
   GH: [
@@ -230,9 +202,6 @@ const MOBILE_MONEY_PROVIDERS = {
 // Bank list by country
 const BANKS_BY_COUNTRY = {
   NG: NIGERIAN_BANKS,
-  GH: GHANA_BANKS,
-  KE: KENYA_BANKS,
-  ZA: SOUTH_AFRICA_BANKS
 };
 
 // Provider circuit breaker state
