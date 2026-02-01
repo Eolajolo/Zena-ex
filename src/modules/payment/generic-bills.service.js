@@ -240,52 +240,148 @@ const BILL_CONFIGS = {
     beneficiaryCollection: 'tvBeneficiaries',
     previewCollection: 'tvPreviews',
     referencePrefix: 'TV',
-    customerIdField: 'smartcardNumber',
-    customerIdLabel: 'Smartcard/IUC Number',
-    customerIdPlaceholder: 'Enter Smartcard Number',
+    customerIdField: 'decoderNumber',
+    customerIdLabel: 'Decoder Number',
+    customerIdPlaceholder: 'Enter Decoder Number (IUC)',
     requiresValidation: true,
     validationOperation: 'verify_smartcard',
     purchaseOperation: 'purchase_tv',
     hasPackages: true,
+    hasPackageCategories: true,
+    packageCategories: [
+      { id: 'hot', name: 'Hot', description: 'Popular packages' },
+      { id: 'premium', name: 'Premium', description: 'Premium packages with add-ons' }
+    ],
+    tabs: [
+      { id: 'cable_tv', name: 'Cable Tv', active: true },
+      { id: 'transactions', name: 'Transactions', active: false }
+    ],
     providers: {
       DSTV: {
         id: 'dstv',
         code: 'DSTV',
-        name: 'DStv',
+        name: 'DSTV',
+        fullName: 'DStv Nigeria',
         logo: 'dstv.png',
+        color: '#003087',
+        packageCategories: {
+          hot: [
+            { code: 'dstv_padi', name: 'Dstv Padi', amount: 4400, validity: '1 Month', description: 'Dstv Padi Package' },
+            { code: 'dstv_yanga', name: 'Dstv Yanga', amount: 6000, validity: '1 Month', description: 'Dstv Yanga Package' },
+            { code: 'dstv_confam', name: 'Dstv Confam', amount: 11000, validity: '1 Month', description: 'Dstv Confam Package' },
+            { code: 'dstv_compact', name: 'Dstv Compact', amount: 15000, validity: '1 Month', description: 'Dstv Compact Package' },
+            { code: 'dstv_compact_plus', name: 'Dstv Compact+', amount: 30000, validity: '1 Month', description: 'Dstv Compact+ Package' },
+            { code: 'dstv_stream', name: 'Dstv Stream', amount: 44500, validity: '1 Month', description: 'Dstv Stream Package' }
+          ],
+          premium: [
+            { code: 'dstv_premium', name: 'Dstv Premium', amount: 44500, validity: '1 Month', description: 'Dstv Premium Package' },
+            { code: 'dstv_premium_french', name: 'Dstv Premium + French', amount: 65500, validity: '1 Month', description: 'Dstv Premium with French Channels' },
+            { code: 'dstv_premium_showmax', name: 'Dstv Premium + Showmax', amount: 44500, validity: '1 Month', description: 'Dstv Premium with Showmax' },
+            { code: 'dstv_premium_french_showmax', name: 'Dstv Premium French + Showmax', amount: 44500, validity: '1 Month', description: 'Dstv Premium with French and Showmax' },
+            { code: 'dstv_premium_asia', name: 'Dstv Premium + Asia', amount: 44500, validity: '1 Month', description: 'Dstv Premium with Asia Channels' },
+            { code: 'dstv_premium_asia_showmax', name: 'Dstv Premium Asia Showmax', amount: 44500, validity: '1 Month', description: 'Dstv Premium with Asia and Showmax' },
+            { code: 'dstv_premium_xtraview', name: 'Dstv Premium + Xtraview', amount: 44500, validity: '1 Month', description: 'Dstv Premium with Xtraview' },
+            { code: 'dstv_premium_french_xtraview', name: 'Dstv Premium + French + Xtraview', amount: 75000, validity: '1 Month', description: 'Dstv Premium with French and Xtraview' },
+            { code: 'dstv_premium_asia_xtraview', name: 'Dstv Premiumasia + Xtraview', amount: 66500, validity: '1 Month', description: 'Dstv Premium with Asia and Xtraview' },
+            { code: 'dstv_stream_premium', name: 'Dstv Stream Premium', amount: 44500, validity: '1 Month', description: 'Dstv Stream Premium Package' }
+          ]
+        },
+        // Flat list for backward compatibility
         packages: [
-          { code: 'dstv_padi', name: 'DStv Padi', amount: 2500, validity: '1 Month' },
-          { code: 'dstv_yanga', name: 'DStv Yanga', amount: 3500, validity: '1 Month' },
-          { code: 'dstv_confam', name: 'DStv Confam', amount: 6200, validity: '1 Month' },
-          { code: 'dstv_compact', name: 'DStv Compact', amount: 10500, validity: '1 Month' },
-          { code: 'dstv_compact_plus', name: 'DStv Compact Plus', amount: 16600, validity: '1 Month' },
-          { code: 'dstv_premium', name: 'DStv Premium', amount: 24500, validity: '1 Month' }
+          { code: 'dstv_padi', name: 'Dstv Padi', amount: 4400, validity: '1 Month', category: 'hot' },
+          { code: 'dstv_yanga', name: 'Dstv Yanga', amount: 6000, validity: '1 Month', category: 'hot' },
+          { code: 'dstv_confam', name: 'Dstv Confam', amount: 11000, validity: '1 Month', category: 'hot' },
+          { code: 'dstv_compact', name: 'Dstv Compact', amount: 15000, validity: '1 Month', category: 'hot' },
+          { code: 'dstv_compact_plus', name: 'Dstv Compact+', amount: 30000, validity: '1 Month', category: 'hot' },
+          { code: 'dstv_stream', name: 'Dstv Stream', amount: 44500, validity: '1 Month', category: 'hot' },
+          { code: 'dstv_premium', name: 'Dstv Premium', amount: 44500, validity: '1 Month', category: 'premium' },
+          { code: 'dstv_premium_french', name: 'Dstv Premium + French', amount: 65500, validity: '1 Month', category: 'premium' },
+          { code: 'dstv_premium_showmax', name: 'Dstv Premium + Showmax', amount: 44500, validity: '1 Month', category: 'premium' },
+          { code: 'dstv_premium_french_showmax', name: 'Dstv Premium French + Showmax', amount: 44500, validity: '1 Month', category: 'premium' },
+          { code: 'dstv_premium_asia', name: 'Dstv Premium + Asia', amount: 44500, validity: '1 Month', category: 'premium' },
+          { code: 'dstv_premium_asia_showmax', name: 'Dstv Premium Asia Showmax', amount: 44500, validity: '1 Month', category: 'premium' },
+          { code: 'dstv_premium_xtraview', name: 'Dstv Premium + Xtraview', amount: 44500, validity: '1 Month', category: 'premium' },
+          { code: 'dstv_premium_french_xtraview', name: 'Dstv Premium + French + Xtraview', amount: 75000, validity: '1 Month', category: 'premium' },
+          { code: 'dstv_premium_asia_xtraview', name: 'Dstv Premiumasia + Xtraview', amount: 66500, validity: '1 Month', category: 'premium' },
+          { code: 'dstv_stream_premium', name: 'Dstv Stream Premium', amount: 44500, validity: '1 Month', category: 'premium' }
+        ]
+      },
+      SHOWMAX: {
+        id: 'showmax',
+        code: 'SHOWMAX',
+        name: 'Showmax',
+        fullName: 'Showmax Streaming',
+        logo: 'showmax.png',
+        color: '#E50914',
+        packageCategories: {
+          hot: [
+            { code: 'showmax_mobile', name: 'Showmax Mobile', amount: 1200, validity: '1 Month', description: 'Mobile only streaming' },
+            { code: 'showmax_standard', name: 'Showmax Standard', amount: 2900, validity: '1 Month', description: 'Standard streaming package' }
+          ],
+          premium: [
+            { code: 'showmax_pro', name: 'Showmax Pro', amount: 6300, validity: '1 Month', description: 'Pro package with sports' },
+            { code: 'showmax_pro_mobile', name: 'Showmax Pro Mobile', amount: 3200, validity: '1 Month', description: 'Pro mobile streaming' }
+          ]
+        },
+        packages: [
+          { code: 'showmax_mobile', name: 'Showmax Mobile', amount: 1200, validity: '1 Month', category: 'hot' },
+          { code: 'showmax_standard', name: 'Showmax Standard', amount: 2900, validity: '1 Month', category: 'hot' },
+          { code: 'showmax_pro', name: 'Showmax Pro', amount: 6300, validity: '1 Month', category: 'premium' },
+          { code: 'showmax_pro_mobile', name: 'Showmax Pro Mobile', amount: 3200, validity: '1 Month', category: 'premium' }
         ]
       },
       GOTV: {
         id: 'gotv',
         code: 'GOTV',
-        name: 'GOtv',
+        name: 'GoTV',
+        fullName: 'GOtv Nigeria',
         logo: 'gotv.png',
+        color: '#00A859',
+        packageCategories: {
+          hot: [
+            { code: 'gotv_smallie', name: 'GOtv Smallie', amount: 1575, validity: '1 Month', description: 'GOtv Smallie Package' },
+            { code: 'gotv_jinja', name: 'GOtv Jinja', amount: 3300, validity: '1 Month', description: 'GOtv Jinja Package' },
+            { code: 'gotv_jolli', name: 'GOtv Jolli', amount: 5100, validity: '1 Month', description: 'GOtv Jolli Package' }
+          ],
+          premium: [
+            { code: 'gotv_max', name: 'GOtv Max', amount: 7200, validity: '1 Month', description: 'GOtv Max Package' },
+            { code: 'gotv_supa', name: 'GOtv Supa', amount: 9600, validity: '1 Month', description: 'GOtv Supa Package' },
+            { code: 'gotv_supa_plus', name: 'GOtv Supa+', amount: 15700, validity: '1 Month', description: 'GOtv Supa+ Package' }
+          ]
+        },
         packages: [
-          { code: 'gotv_smallie', name: 'GOtv Smallie', amount: 1100, validity: '1 Month' },
-          { code: 'gotv_jinja', name: 'GOtv Jinja', amount: 2700, validity: '1 Month' },
-          { code: 'gotv_jolli', name: 'GOtv Jolli', amount: 3950, validity: '1 Month' },
-          { code: 'gotv_max', name: 'GOtv Max', amount: 5700, validity: '1 Month' },
-          { code: 'gotv_supa', name: 'GOtv Supa', amount: 7600, validity: '1 Month' }
+          { code: 'gotv_smallie', name: 'GOtv Smallie', amount: 1575, validity: '1 Month', category: 'hot' },
+          { code: 'gotv_jinja', name: 'GOtv Jinja', amount: 3300, validity: '1 Month', category: 'hot' },
+          { code: 'gotv_jolli', name: 'GOtv Jolli', amount: 5100, validity: '1 Month', category: 'hot' },
+          { code: 'gotv_max', name: 'GOtv Max', amount: 7200, validity: '1 Month', category: 'premium' },
+          { code: 'gotv_supa', name: 'GOtv Supa', amount: 9600, validity: '1 Month', category: 'premium' },
+          { code: 'gotv_supa_plus', name: 'GOtv Supa+', amount: 15700, validity: '1 Month', category: 'premium' }
         ]
       },
       STARTIMES: {
         id: 'startimes',
         code: 'STARTIMES',
         name: 'StarTimes',
+        fullName: 'StarTimes Nigeria',
         logo: 'startimes.png',
+        color: '#FF6600',
+        packageCategories: {
+          hot: [
+            { code: 'startimes_nova', name: 'StarTimes Nova', amount: 1200, validity: '1 Month', description: 'StarTimes Nova Package' },
+            { code: 'startimes_basic', name: 'StarTimes Basic', amount: 2100, validity: '1 Month', description: 'StarTimes Basic Package' },
+            { code: 'startimes_smart', name: 'StarTimes Smart', amount: 2800, validity: '1 Month', description: 'StarTimes Smart Package' }
+          ],
+          premium: [
+            { code: 'startimes_classic', name: 'StarTimes Classic', amount: 3000, validity: '1 Month', description: 'StarTimes Classic Package' },
+            { code: 'startimes_super', name: 'StarTimes Super', amount: 5500, validity: '1 Month', description: 'StarTimes Super Package' }
+          ]
+        },
         packages: [
-          { code: 'startimes_nova', name: 'StarTimes Nova', amount: 1200, validity: '1 Month' },
-          { code: 'startimes_basic', name: 'StarTimes Basic', amount: 2100, validity: '1 Month' },
-          { code: 'startimes_smart', name: 'StarTimes Smart', amount: 2800, validity: '1 Month' },
-          { code: 'startimes_classic', name: 'StarTimes Classic', amount: 3000, validity: '1 Month' },
-          { code: 'startimes_super', name: 'StarTimes Super', amount: 5500, validity: '1 Month' }
+          { code: 'startimes_nova', name: 'StarTimes Nova', amount: 1200, validity: '1 Month', category: 'hot' },
+          { code: 'startimes_basic', name: 'StarTimes Basic', amount: 2100, validity: '1 Month', category: 'hot' },
+          { code: 'startimes_smart', name: 'StarTimes Smart', amount: 2800, validity: '1 Month', category: 'hot' },
+          { code: 'startimes_classic', name: 'StarTimes Classic', amount: 3000, validity: '1 Month', category: 'premium' },
+          { code: 'startimes_super', name: 'StarTimes Super', amount: 5500, validity: '1 Month', category: 'premium' }
         ]
       }
     }
@@ -361,13 +457,44 @@ class GenericBillsService {
   /**
    * Get packages for a provider (for TV)
    */
-  static getPackages(billType, providerCode) {
+  static getPackages(billType, providerCode, category = null) {
     const config = this.getConfig(billType);
     if (!config.hasPackages) {
       return null;
     }
     const provider = this.getProvider(billType, providerCode);
+
+    // If provider has package categories and category is specified
+    if (config.hasPackageCategories && provider.packageCategories) {
+      if (category) {
+        return provider.packageCategories[category] || [];
+      }
+      // Return all packages grouped by category
+      return {
+        categories: config.packageCategories,
+        packages: provider.packageCategories,
+        flatList: provider.packages || []
+      };
+    }
+
     return provider.packages || [];
+  }
+
+  /**
+   * Get packages by category for TV providers
+   */
+  static getPackagesByCategory(billType, providerCode, category) {
+    const config = this.getConfig(billType);
+    if (!config.hasPackageCategories) {
+      return this.getPackages(billType, providerCode);
+    }
+
+    const provider = this.getProvider(billType, providerCode);
+    if (!provider.packageCategories) {
+      return provider.packages || [];
+    }
+
+    return provider.packageCategories[category] || [];
   }
 
   /**
@@ -387,15 +514,26 @@ class GenericBillsService {
       meterTypes: config.meterTypes || null,
       defaultMeterType: config.defaultMeterType || null,
       hasPackages: config.hasPackages || false,
+      hasPackageCategories: config.hasPackageCategories || false,
+      packageCategories: config.packageCategories || null,
+      tabs: config.tabs || null,
       providers: this.getProviders(billType)
     };
 
-    // For electricity, add VAT rate info
+    // For electricity, add VAT rate info and tabs
     if (billType === BILL_CATEGORIES.ELECTRICITY) {
       info.vatRate = config.vatRate;
       info.tabs = [
         { id: 'prepaid', name: 'Prepaid', active: true },
         { id: 'postpaid', name: 'Postpaid', active: false },
+        { id: 'transactions', name: 'Transactions', active: false }
+      ];
+    }
+
+    // For TV, add package categories and tabs
+    if (billType === BILL_CATEGORIES.TV) {
+      info.tabs = config.tabs || [
+        { id: 'cable_tv', name: 'Cable Tv', active: true },
         { id: 'transactions', name: 'Transactions', active: false }
       ];
     }
@@ -640,6 +778,13 @@ class GenericBillsService {
       if (billType === BILL_CATEGORIES.ELECTRICITY) {
         beneficiary.meterType = r.meterType;
         beneficiary.serviceAddress = r.serviceAddress;
+      }
+
+      // Add TV-specific fields (decoder number display)
+      if (billType === BILL_CATEGORIES.TV) {
+        beneficiary.decoderNumber = r.customerId;
+        beneficiary.displayLabel = r.customerName || r.customerId;
+        beneficiary.displaySubLabel = `Decoder Number: ${r.customerId}`;
       }
 
       return beneficiary;
@@ -1029,7 +1174,9 @@ class GenericBillsService {
         }
         break;
       case BILL_CATEGORIES.TV:
-        successMessage = `${preview.package?.name || 'Subscription'} activated for ${preview.customerId}`;
+        const packageName = preview.package?.name || 'Subscription';
+        const validity = preview.package?.validity || '1 Month';
+        successMessage = `${packageName} (${validity}) subscription successfully renewed`;
         break;
       default:
         successMessage = `Payment successful for ${preview.customerId}`;
@@ -1286,6 +1433,11 @@ class GenericBillsService {
       return this.generateElectricityReceipt(transaction, statusDisplay, statusColor);
     }
 
+    // TV-specific receipt
+    if (billType === BILL_CATEGORIES.TV) {
+      return this.generateTVReceipt(transaction, statusDisplay, statusColor);
+    }
+
     // Default receipt format for other bill types
     const details = [
       { label: 'Status', value: statusDisplay, color: statusColor },
@@ -1401,6 +1553,64 @@ class GenericBillsService {
       details,
       extendedDetails,
       description: `Bill payment for ${transaction.provider.name} recharge for Meter Number ${transaction.customerId}`,
+      generatedAt: new Date().toISOString(),
+      supportEmail: 'disputes@Zenaex.com',
+      branding: {
+        name: 'ZENAEX',
+        message: 'Any issues with this transaction? Contact us at disputes@Zenaex.com'
+      }
+    };
+  }
+
+  /**
+   * Generate TV-specific receipt
+   * Matches the UI design for Cable TV transactions
+   */
+  static generateTVReceipt(transaction, statusDisplay, statusColor) {
+    const details = [
+      { label: 'Status', value: statusDisplay, color: statusColor },
+      { label: 'Product Name', value: transaction.provider.name, icon: transaction.provider.logo },
+      { label: 'Subscription Plan', value: transaction.package ? `${transaction.package.name} (${transaction.package.validity})` : 'N/A' },
+      { label: 'Decoder Number', value: transaction.customerId },
+      { label: 'Customer Name', value: transaction.customerName || 'N/A' },
+      { label: 'Amount', value: `₦${transaction.amount.toLocaleString()}` },
+      { label: 'Transaction ID', value: transaction.reference, copyable: true },
+      {
+        label: 'Timestamp',
+        value: new Date(transaction.createdAt).toLocaleString('en-US', {
+          day: '2-digit',
+          month: '2-digit',
+          year: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: true
+        })
+      }
+    ];
+
+    // Success message based on package
+    const packageName = transaction.package?.name || 'Subscription';
+    const validity = transaction.package?.validity || '1 Month';
+    const successDescription = `${packageName} (${validity}) subscription successfully renewed`;
+
+    return {
+      receiptId: `RCP${Date.now()}`,
+      amount: transaction.amount,
+      formattedAmount: `₦${transaction.amount.toLocaleString()}`,
+      status: statusDisplay,
+      statusColor,
+      productName: transaction.provider.name,
+      subscriptionPlan: transaction.package?.name,
+      decoderNumber: transaction.customerId,
+      customerName: transaction.customerName,
+      details,
+      description: successDescription,
+      // Actions available after transaction
+      actions: [
+        { id: 'view_details', label: 'View Transaction Details', icon: 'receipt' },
+        { id: 'report_issue', label: 'Report Issue', icon: 'warning' },
+        { id: 'refer_earn', label: 'Refer & Earn', icon: 'gift' }
+      ],
       generatedAt: new Date().toISOString(),
       supportEmail: 'disputes@Zenaex.com',
       branding: {
