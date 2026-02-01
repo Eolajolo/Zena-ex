@@ -48,10 +48,10 @@ const PROVIDERS = {
     prefixes: ['0802', '0808', '0708', '0812', '0701', '0902', '0901', '0907', '0912']
   },
   '9MOBILE': {
-    id: '9mobile',
-    code: '9MOBILE',
-    name: '9mobile',
-    logo: '9mobile.png',
+    id: 'T2mobile',
+    code: 'T2mobile',
+    name: 'T2mobile',
+    logo: 'T2mobile.png',
     prefixes: ['0809', '0818', '0817', '0909', '0908']
   }
 };
