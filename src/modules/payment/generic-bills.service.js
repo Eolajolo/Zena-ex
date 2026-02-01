@@ -5,6 +5,7 @@ const { TRANSACTION_STATUS, BILL_CATEGORIES } = require('../../shared/constants'
 const { generateReference } = require('../../shared/utils');
 const AccountService = require('../account/account.service');
 const ProviderService = require('./provider.service');
+const CommissionService = require('./commission.service');
 
 /**
  * Generic Bills Service
@@ -26,9 +27,6 @@ const ProviderService = require('./provider.service');
 
 // High value transaction threshold - requires biometric + PIN
 const HIGH_VALUE_THRESHOLD = 500000;
-
-// Cashback rate (2%)
-const CASHBACK_RATE = 0.02;
 
 // VAT rate for electricity (7.5%)
 const ELECTRICITY_VAT_RATE = 0.075;
@@ -516,10 +514,24 @@ class GenericBillsService {
   }
 
   /**
-   * Calculate cashback
+   * Calculate cashback using CommissionService
+   * Returns full commission breakdown including company profit
+   *
+   * @param {number} amount - Transaction amount
+   * @param {string} billType - Bill category
+   * @param {string} providerCode - Provider code
+   * @param {string} externalProvider - External provider (baxi/ringo)
+   * @returns {Object} Commission breakdown
    */
-  static calculateCashback(amount) {
-    return Math.floor(amount * CASHBACK_RATE);
+  static calculateCashback(amount, billType, providerCode, externalProvider = 'baxi') {
+    return CommissionService.calculateCashback(amount, billType, providerCode, externalProvider);
+  }
+
+  /**
+   * Check if cashback is available for this product/provider
+   */
+  static isCashbackAvailable(billType, providerCode, externalProvider = 'baxi') {
+    return CommissionService.isCashbackAvailable(billType, providerCode, externalProvider);
   }
 
   // ==========================================
@@ -741,8 +753,10 @@ class GenericBillsService {
       throw new ValidationError(validation.error || 'Customer validation failed');
     }
 
-    // Calculate cashback
-    const cashback = this.calculateCashback(finalAmount);
+    // Calculate cashback and commission breakdown
+    // External provider will be determined at purchase time, use 'baxi' as default for preview
+    const commissionBreakdown = this.calculateCashback(finalAmount, billType, providerCode, 'baxi');
+    const cashbackAvailable = this.isCashbackAvailable(billType, providerCode, 'baxi');
 
     // Check if biometric is required
     const requiresBiometric = this.requiresBiometric(finalAmount);
@@ -770,7 +784,10 @@ class GenericBillsService {
       package: selectedPackage,
       meterType: meterType || null,
       amount: finalAmount,
-      cashback,
+      // Store full commission breakdown for transaction recording
+      commissionBreakdown,
+      cashback: commissionBreakdown.userCashbackAmount,
+      cashbackAvailable,
       totalDebit: finalAmount,
       walletBalance: mockWalletBalance,
       requiresBiometric,
@@ -805,6 +822,8 @@ class GenericBillsService {
       package: preview.package,
       amount: preview.amount,
       cashback: preview.cashback,
+      cashbackAvailable: preview.cashbackAvailable,
+      cashbackRate: preview.commissionBreakdown.userCashbackRate,
       totalDebit: preview.totalDebit,
       walletBalance: mockWalletBalance,
       requiresBiometric,
@@ -879,11 +898,18 @@ class GenericBillsService {
       package: preview.package,
       meterType: preview.meterType,
       amount: preview.amount,
+      // Commission breakdown from preview
+      commissionBreakdown: preview.commissionBreakdown || null,
       cashback: preview.cashback,
+      cashbackAvailable: preview.cashbackAvailable,
+      // Company profit fields
+      providerCommissionAmount: preview.commissionBreakdown?.providerCommissionAmount || 0,
+      companyProfitAmount: preview.commissionBreakdown?.companyProfitAmount || 0,
       status: TRANSACTION_STATUS.PROCESSING,
       providerReference: null,
       providerResponse: null,
       providerUsed: null,
+      externalProvider: null, // Will be set after provider call
       createdAt: new Date(),
       updatedAt: new Date()
     };
@@ -953,12 +979,40 @@ class GenericBillsService {
       updateData.token = providerResult.data?.token || null;
     }
 
-    // Update transaction
+    // Update transaction with external provider used
+    const externalProviderUsed = providerResult.provider?.id || 'baxi';
+    updateData.externalProvider = externalProviderUsed;
+
+    // Recalculate commission with actual external provider used (rates may differ)
+    if (providerResult.success && preview.commissionBreakdown) {
+      const actualCommission = CommissionService.calculateCashback(
+        preview.amount,
+        billType,
+        preview.provider.code,
+        externalProviderUsed
+      );
+      updateData.commissionBreakdown = actualCommission;
+      updateData.cashback = actualCommission.userCashbackAmount;
+      updateData.providerCommissionAmount = actualCommission.providerCommissionAmount;
+      updateData.companyProfitAmount = actualCommission.companyProfitAmount;
+    }
+
     const finalTransaction = db.update(config.collection, transactionId, updateData);
 
-    // Update beneficiary last used
+    // Update beneficiary last used and record commission for reporting
     if (providerResult.success) {
       this.updateBeneficiaryLastUsed(billType, userId, preview.customerId, preview.provider.code);
+
+      // Record commission for financial reporting
+      CommissionService.recordTransactionCommission({
+        transactionId: finalTransaction.id,
+        transactionReference: finalTransaction.reference,
+        userId,
+        productType: billType,
+        providerCode: preview.provider.code,
+        externalProvider: externalProviderUsed,
+        amount: preview.amount
+      });
     }
 
     // Generate success message

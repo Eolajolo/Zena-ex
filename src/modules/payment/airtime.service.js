@@ -5,6 +5,7 @@ const { TRANSACTION_STATUS, BILL_CATEGORIES } = require('../../shared/constants'
 const { generateReference } = require('../../shared/utils');
 const AccountService = require('../account/account.service');
 const ProviderService = require('./provider.service');
+const CommissionService = require('./commission.service');
 
 /**
  * Airtime Service
@@ -64,22 +65,19 @@ const AMOUNT_LIMITS = {
 // High value transaction threshold - requires biometric + PIN
 const HIGH_VALUE_THRESHOLD = 500000; // ₦500,000
 
-// Quick amount options with bonus percentage
+// Quick amount options (bonus percentage comes from CommissionService based on provider)
 const QUICK_AMOUNTS = [
-  { amount: 100, bonus: 2 },
-  { amount: 200, bonus: 2 },
-  { amount: 500, bonus: 2 },
-  { amount: 1000, bonus: 2 },
-  { amount: 2000, bonus: 2 },
-  { amount: 5000, bonus: 2 },
-  { amount: 10000, bonus: 2 },
-  { amount: 15000, bonus: 2 },
-  { amount: 20000, bonus: 2 },
-  { amount: 30000, bonus: 2 }
+  { amount: 100 },
+  { amount: 200 },
+  { amount: 500 },
+  { amount: 1000 },
+  { amount: 2000 },
+  { amount: 5000 },
+  { amount: 10000 },
+  { amount: 15000 },
+  { amount: 20000 },
+  { amount: 30000 }
 ];
-
-// Cashback rate (2%)
-const CASHBACK_RATE = 0.02;
 
 class AirtimeService {
   /**
@@ -96,13 +94,29 @@ class AirtimeService {
 
   /**
    * Get amount limits and quick options
+   * Note: Cashback rate varies by provider, use getProviderCashbackRate for specific rates
    */
   static getAmountOptions() {
+    // Get default cashback rate for display (actual rate depends on provider)
+    const defaultRates = CommissionService.getCommissionRates(BILL_CATEGORIES.AIRTIME, 'MTN', 'baxi');
     return {
       limits: AMOUNT_LIMITS,
       quickAmounts: QUICK_AMOUNTS,
-      cashbackRate: CASHBACK_RATE * 100, // Return as percentage
-      highValueThreshold: HIGH_VALUE_THRESHOLD
+      cashbackRate: defaultRates.userCashback * 100, // Return as percentage
+      highValueThreshold: HIGH_VALUE_THRESHOLD,
+      cashbackNote: 'Cashback rate may vary by provider'
+    };
+  }
+
+  /**
+   * Get cashback rate for a specific provider
+   */
+  static getProviderCashbackRate(providerCode, externalProvider = 'baxi') {
+    const rates = CommissionService.getCommissionRates(BILL_CATEGORIES.AIRTIME, providerCode, externalProvider);
+    return {
+      rate: rates.userCashback,
+      percentage: rates.userCashback * 100,
+      available: rates.userCashback > 0
     };
   }
 
@@ -218,10 +232,16 @@ class AirtimeService {
   }
 
   /**
-   * Calculate cashback
+   * Calculate cashback using CommissionService
+   * Returns full commission breakdown including company profit
+   *
+   * @param {number} amount - Transaction amount
+   * @param {string} providerCode - Provider code (MTN, GLO, etc.)
+   * @param {string} externalProvider - External provider (baxi/ringo)
+   * @returns {Object} Commission breakdown
    */
-  static calculateCashback(amount) {
-    return Math.floor(amount * CASHBACK_RATE);
+  static calculateCashback(amount, providerCode, externalProvider = 'baxi') {
+    return CommissionService.calculateCashback(amount, BILL_CATEGORIES.AIRTIME, providerCode, externalProvider);
   }
 
   /**
@@ -300,8 +320,10 @@ class AirtimeService {
       provider = PROVIDERS[phoneValidation.provider.code];
     }
 
-    // Calculate cashback
-    const cashback = this.calculateCashback(Number(amount));
+    // Calculate cashback and commission breakdown
+    // External provider will be determined at purchase time, use 'baxi' as default for preview
+    const commissionBreakdown = this.calculateCashback(Number(amount), provider.code, 'baxi');
+    const cashbackAvailable = commissionBreakdown.userCashbackAmount > 0;
 
     // Check if biometric is required for high-value transactions
     const requiresBiometric = this.requiresBiometric(amount);
@@ -332,7 +354,10 @@ class AirtimeService {
         logo: provider.logo
       },
       amount: Number(amount),
-      cashback,
+      // Store full commission breakdown
+      commissionBreakdown,
+      cashback: commissionBreakdown.userCashbackAmount,
+      cashbackAvailable,
       totalDebit: Number(amount),
       walletBalance: mockWalletBalance,
       requiresBiometric,
@@ -349,6 +374,8 @@ class AirtimeService {
       provider: preview.provider,
       amount: preview.amount,
       cashback: preview.cashback,
+      cashbackAvailable: preview.cashbackAvailable,
+      cashbackRate: commissionBreakdown.userCashbackRate,
       totalDebit: preview.totalDebit,
       walletBalance: mockWalletBalance,
       requiresBiometric,
@@ -409,11 +436,18 @@ class AirtimeService {
       recipientNumber: preview.recipientNumber,
       provider: preview.provider,
       amount: preview.amount,
+      // Commission breakdown from preview
+      commissionBreakdown: preview.commissionBreakdown || null,
       cashback: preview.cashback,
+      cashbackAvailable: preview.cashbackAvailable,
+      // Company profit fields
+      providerCommissionAmount: preview.commissionBreakdown?.providerCommissionAmount || 0,
+      companyProfitAmount: preview.commissionBreakdown?.companyProfitAmount || 0,
       status: TRANSACTION_STATUS.PROCESSING,
       providerReference: null,
       providerResponse: null,
       providerUsed: null,
+      externalProvider: null, // Will be set after provider call
       createdAt: new Date(),
       updatedAt: new Date()
     };
@@ -453,17 +487,47 @@ class AirtimeService {
       }
     );
 
-    // Update transaction with provider response
+    // Determine which external provider was actually used
+    const externalProviderUsed = providerResult.provider?.id || 'baxi';
+
+    // Recalculate commission with actual external provider used
+    const actualCommission = this.calculateCashback(
+      preview.amount,
+      preview.provider.code,
+      externalProviderUsed
+    );
+
+    // Update transaction with provider response and actual commission
     const finalTransaction = db.update('airtimeTransactions', transactionId, {
       status: providerResult.success ? TRANSACTION_STATUS.COMPLETED : TRANSACTION_STATUS.FAILED,
       providerReference: providerResult.data?.providerReference || null,
       providerResponse: providerResult,
       providerUsed: providerResult.provider?.name || null,
+      externalProvider: externalProviderUsed,
+      // Update commission with actual external provider rates
+      commissionBreakdown: actualCommission,
+      cashback: actualCommission.userCashbackAmount,
+      cashbackAvailable: actualCommission.userCashbackAmount > 0,
+      providerCommissionAmount: actualCommission.providerCommissionAmount,
+      companyProfitAmount: actualCommission.companyProfitAmount,
       completedAt: providerResult.success ? new Date() : null,
       failedAt: providerResult.success ? null : new Date(),
       failureReason: providerResult.success ? null : (providerResult.error || 'Provider error'),
       updatedAt: new Date()
     });
+
+    // Record commission for financial reporting (only on successful transactions)
+    if (providerResult.success) {
+      CommissionService.recordTransactionCommission({
+        transactionId: finalTransaction.id,
+        transactionReference: finalTransaction.reference,
+        userId,
+        productType: BILL_CATEGORIES.AIRTIME,
+        providerCode: preview.provider.code,
+        externalProvider: externalProviderUsed,
+        amount: preview.amount
+      });
+    }
 
     /**
      * TODO: Wallet Integration

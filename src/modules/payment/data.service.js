@@ -5,6 +5,7 @@ const { TRANSACTION_STATUS, BILL_CATEGORIES } = require('../../shared/constants'
 const { generateReference } = require('../../shared/utils');
 const AccountService = require('../account/account.service');
 const ProviderService = require('./provider.service');
+const CommissionService = require('./commission.service');
 
 /**
  * Data Service
@@ -65,9 +66,6 @@ const BUNDLE_CATEGORIES = {
 
 // High value transaction threshold - requires biometric + PIN
 const HIGH_VALUE_THRESHOLD = 500000; // ₦500,000
-
-// Cashback rate (2%)
-const CASHBACK_RATE = 0.02;
 
 // Data bundles by provider and category
 const DATA_BUNDLES = {
@@ -351,10 +349,28 @@ class DataService {
   }
 
   /**
-   * Calculate cashback
+   * Get cashback rate for a specific provider
    */
-  static calculateCashback(amount) {
-    return Math.floor(amount * CASHBACK_RATE);
+  static getProviderCashbackRate(providerCode, externalProvider = 'baxi') {
+    const rates = CommissionService.getCommissionRates(BILL_CATEGORIES.DATA, providerCode, externalProvider);
+    return {
+      rate: rates.userCashback,
+      percentage: rates.userCashback * 100,
+      available: rates.userCashback > 0
+    };
+  }
+
+  /**
+   * Calculate cashback using CommissionService
+   * Returns full commission breakdown including company profit
+   *
+   * @param {number} amount - Transaction amount
+   * @param {string} providerCode - Provider code (MTN, GLO, etc.)
+   * @param {string} externalProvider - External provider (baxi/ringo)
+   * @returns {Object} Commission breakdown
+   */
+  static calculateCashback(amount, providerCode, externalProvider = 'baxi') {
+    return CommissionService.calculateCashback(amount, BILL_CATEGORIES.DATA, providerCode, externalProvider);
   }
 
   /**
@@ -499,8 +515,10 @@ class DataService {
       throw new ValidationError('Invalid data bundle');
     }
 
-    // Calculate cashback
-    const cashback = this.calculateCashback(bundle.amount);
+    // Calculate cashback and commission breakdown
+    // External provider will be determined at purchase time, use 'baxi' as default for preview
+    const commissionBreakdown = this.calculateCashback(bundle.amount, provider.code, 'baxi');
+    const cashbackAvailable = commissionBreakdown.userCashbackAmount > 0;
 
     // Check if biometric is required
     const requiresBiometric = this.requiresBiometric(bundle.amount);
@@ -536,7 +554,10 @@ class DataService {
         description: bundle.description
       },
       amount: bundle.amount,
-      cashback,
+      // Store full commission breakdown
+      commissionBreakdown,
+      cashback: commissionBreakdown.userCashbackAmount,
+      cashbackAvailable,
       totalDebit: bundle.amount,
       walletBalance: mockWalletBalance,
       requiresBiometric,
@@ -553,6 +574,8 @@ class DataService {
       bundle: preview.bundle,
       amount: preview.amount,
       cashback: preview.cashback,
+      cashbackAvailable: preview.cashbackAvailable,
+      cashbackRate: commissionBreakdown.userCashbackRate,
       totalDebit: preview.totalDebit,
       walletBalance: mockWalletBalance,
       requiresBiometric,
@@ -608,11 +631,18 @@ class DataService {
       provider: preview.provider,
       bundle: preview.bundle,
       amount: preview.amount,
+      // Commission breakdown from preview
+      commissionBreakdown: preview.commissionBreakdown || null,
       cashback: preview.cashback,
+      cashbackAvailable: preview.cashbackAvailable,
+      // Company profit fields
+      providerCommissionAmount: preview.commissionBreakdown?.providerCommissionAmount || 0,
+      companyProfitAmount: preview.commissionBreakdown?.companyProfitAmount || 0,
       status: TRANSACTION_STATUS.PROCESSING,
       providerReference: null,
       providerResponse: null,
       providerUsed: null,
+      externalProvider: null, // Will be set after provider call
       createdAt: new Date(),
       updatedAt: new Date()
     };
@@ -637,20 +667,48 @@ class DataService {
       }
     );
 
-    // Update transaction
+    // Determine which external provider was actually used
+    const externalProviderUsed = providerResult.provider?.id || 'baxi';
+
+    // Recalculate commission with actual external provider used
+    const actualCommission = this.calculateCashback(
+      preview.amount,
+      preview.provider.code,
+      externalProviderUsed
+    );
+
+    // Update transaction with provider response and actual commission
     const finalTransaction = db.update('dataTransactions', transactionId, {
       status: providerResult.success ? TRANSACTION_STATUS.COMPLETED : TRANSACTION_STATUS.FAILED,
       providerReference: providerResult.data?.providerReference || null,
       providerResponse: providerResult,
       providerUsed: providerResult.provider?.name || null,
+      externalProvider: externalProviderUsed,
+      // Update commission with actual external provider rates
+      commissionBreakdown: actualCommission,
+      cashback: actualCommission.userCashbackAmount,
+      cashbackAvailable: actualCommission.userCashbackAmount > 0,
+      providerCommissionAmount: actualCommission.providerCommissionAmount,
+      companyProfitAmount: actualCommission.companyProfitAmount,
       completedAt: providerResult.success ? new Date() : null,
       failedAt: providerResult.success ? null : new Date(),
       failureReason: providerResult.success ? null : (providerResult.error || 'Provider error'),
       updatedAt: new Date()
     });
 
-    // Update beneficiary last used
+    // Record commission for financial reporting (only on successful transactions)
     if (providerResult.success) {
+      CommissionService.recordTransactionCommission({
+        transactionId: finalTransaction.id,
+        transactionReference: finalTransaction.reference,
+        userId,
+        productType: BILL_CATEGORIES.DATA,
+        providerCode: preview.provider.code,
+        externalProvider: externalProviderUsed,
+        amount: preview.amount
+      });
+
+      // Update beneficiary last used
       const beneficiary = db.findOne('dataBeneficiaries', (b) =>
         b.userId === userId && b.phoneNumber === preview.recipientNumber && !b.deleted
       );
@@ -673,6 +731,7 @@ class DataService {
         bundle: finalTransaction.bundle,
         amount: finalTransaction.amount,
         cashback: finalTransaction.cashback,
+        cashbackAvailable: finalTransaction.cashbackAvailable,
         status: finalTransaction.status,
         providerUsed: finalTransaction.providerUsed,
         createdAt: finalTransaction.createdAt
