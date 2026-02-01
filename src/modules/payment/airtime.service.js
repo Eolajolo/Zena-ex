@@ -4,7 +4,24 @@ const { NotFoundError, ValidationError, InsufficientBalanceError } = require('..
 const { TRANSACTION_STATUS, BILL_CATEGORIES } = require('../../shared/constants');
 const { generateReference } = require('../../shared/utils');
 const AccountService = require('../account/account.service');
-const WalletService = require('../wallet/wallet.service');
+const ProviderService = require('./provider.service');
+
+/**
+ * Airtime Service
+ *
+ * Handles airtime purchases for Nigerian network providers.
+ *
+ * NOTE: Wallet Integration
+ * ========================
+ * This service currently has placeholder wallet calls (WalletService.debit/credit).
+ * When the Wallet module is built, update the following methods:
+ * - initiateAirtimePurchase: Check wallet balance
+ * - purchaseAirtime: Debit wallet and credit cashback
+ * - purchaseAirtime (failed): Refund wallet
+ *
+ * TODO: Import WalletService when available:
+ * const WalletService = require('../wallet/wallet.service');
+ */
 
 // Nigerian network providers with their prefixes
 const PROVIDERS = {
@@ -44,6 +61,9 @@ const AMOUNT_LIMITS = {
   max: 500000    // ₦500,000
 };
 
+// High value transaction threshold - requires biometric + PIN
+const HIGH_VALUE_THRESHOLD = 500000; // ₦500,000
+
 // Quick amount options with bonus percentage
 const QUICK_AMOUNTS = [
   { amount: 100, bonus: 2 },
@@ -81,15 +101,22 @@ class AirtimeService {
     return {
       limits: AMOUNT_LIMITS,
       quickAmounts: QUICK_AMOUNTS,
-      cashbackRate: CASHBACK_RATE * 100 // Return as percentage
+      cashbackRate: CASHBACK_RATE * 100, // Return as percentage
+      highValueThreshold: HIGH_VALUE_THRESHOLD
     };
+  }
+
+  /**
+   * Check if transaction requires biometric verification
+   */
+  static requiresBiometric(amount) {
+    return Number(amount) >= HIGH_VALUE_THRESHOLD;
   }
 
   /**
    * Detect provider from phone number
    */
   static detectProvider(phoneNumber) {
-    // Normalize phone number
     const normalized = this.normalizePhoneNumber(phoneNumber);
     if (!normalized) return null;
 
@@ -120,13 +147,10 @@ class AirtimeService {
 
     // Handle different formats
     if (cleaned.startsWith('234') && cleaned.length === 13) {
-      // International format: 2348012345678 -> 08012345678
       cleaned = '0' + cleaned.substring(3);
     } else if (cleaned.startsWith('234') && cleaned.length === 14) {
-      // With leading zero: 23408012345678 -> 08012345678
       cleaned = cleaned.substring(3);
     } else if (cleaned.length === 10 && !cleaned.startsWith('0')) {
-      // Without leading zero: 8012345678 -> 08012345678
       cleaned = '0' + cleaned;
     }
 
@@ -208,7 +232,6 @@ class AirtimeService {
       t.userId === userId
     );
 
-    // Sort by date descending
     transactions.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
     return transactions.slice(0, limit).map(t => ({
@@ -229,7 +252,6 @@ class AirtimeService {
       t.userId === userId && t.status === TRANSACTION_STATUS.COMPLETED
     );
 
-    // Get unique phone numbers with latest transaction
     const phoneMap = new Map();
     transactions.forEach(t => {
       if (!phoneMap.has(t.recipientNumber) ||
@@ -238,7 +260,6 @@ class AirtimeService {
       }
     });
 
-    // Sort by most recent
     const sorted = Array.from(phoneMap.values())
       .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
       .slice(0, limit);
@@ -282,11 +303,21 @@ class AirtimeService {
     // Calculate cashback
     const cashback = this.calculateCashback(Number(amount));
 
-    // Check wallet balance
-    const wallet = WalletService.getWallet(userId, 'NGN');
-    if (wallet.balance < Number(amount)) {
-      throw new InsufficientBalanceError('Insufficient wallet balance');
-    }
+    // Check if biometric is required for high-value transactions
+    const requiresBiometric = this.requiresBiometric(amount);
+
+    /**
+     * TODO: Wallet Integration
+     * When Wallet module is available, uncomment this:
+     *
+     * const wallet = WalletService.getWallet(userId, 'NGN');
+     * if (wallet.balance < Number(amount)) {
+     *   throw new InsufficientBalanceError('Insufficient wallet balance');
+     * }
+     */
+
+    // Mock wallet balance for now
+    const mockWalletBalance = 1000000; // ₦1,000,000
 
     // Create preview token
     const previewToken = uuidv4();
@@ -303,7 +334,8 @@ class AirtimeService {
       amount: Number(amount),
       cashback,
       totalDebit: Number(amount),
-      walletBalance: wallet.balance,
+      walletBalance: mockWalletBalance,
+      requiresBiometric,
       createdAt: new Date(),
       expiresAt: new Date(Date.now() + 10 * 60 * 1000) // 10 minutes
     };
@@ -318,18 +350,24 @@ class AirtimeService {
       amount: preview.amount,
       cashback: preview.cashback,
       totalDebit: preview.totalDebit,
-      walletBalance: wallet.balance
+      walletBalance: mockWalletBalance,
+      requiresBiometric,
+      biometricMessage: requiresBiometric
+        ? 'This transaction requires both PIN and biometric verification'
+        : null
     };
   }
 
   /**
    * Confirm and execute airtime purchase
+   *
+   * @param {string} userId - User ID
+   * @param {string} previewToken - Preview token from initiate
+   * @param {string} transactionPin - 4-digit transaction PIN
+   * @param {string} biometricToken - Required for transactions >= ₦500,000
    */
-  static async purchaseAirtime(userId, previewToken, transactionPin) {
-    // Verify transaction PIN
-    await AccountService.verifyTransactionPin(userId, transactionPin);
-
-    // Get preview
+  static async purchaseAirtime(userId, previewToken, transactionPin, biometricToken = null) {
+    // Get preview first to check amount
     const preview = db.findById('airtimePreviews', previewToken);
     if (!preview) {
       throw new ValidationError('Transaction session expired. Please start again.');
@@ -342,6 +380,18 @@ class AirtimeService {
     if (new Date() > new Date(preview.expiresAt)) {
       db.delete('airtimePreviews', previewToken);
       throw new ValidationError('Transaction session expired. Please start again.');
+    }
+
+    // Always verify transaction PIN
+    await AccountService.verifyTransactionPin(userId, transactionPin);
+
+    // For high-value transactions, also verify biometric
+    if (preview.requiresBiometric) {
+      if (!biometricToken) {
+        throw new ValidationError('Biometric verification required for transactions above ₦500,000');
+      }
+      // Verify biometric token
+      await this.verifyBiometricToken(userId, biometricToken);
     }
 
     // Delete preview
@@ -363,59 +413,84 @@ class AirtimeService {
       status: TRANSACTION_STATUS.PROCESSING,
       providerReference: null,
       providerResponse: null,
+      providerUsed: null,
       createdAt: new Date(),
       updatedAt: new Date()
     };
 
     db.create('airtimeTransactions', transactionId, airtimeTransaction);
 
-    // Debit wallet
-    const { transaction: walletTransaction } = await WalletService.debit(
-      userId,
-      preview.amount,
-      'NGN',
-      `Airtime - ${preview.provider.name} - ${preview.recipientNumber}`,
+    /**
+     * TODO: Wallet Integration
+     * When Wallet module is available, uncomment this:
+     *
+     * const { transaction: walletTransaction } = await WalletService.debit(
+     *   userId,
+     *   preview.amount,
+     *   'NGN',
+     *   `Airtime - ${preview.provider.name} - ${preview.recipientNumber}`,
+     *   {
+     *     airtimeTransactionId: transactionId,
+     *     provider: preview.provider.code,
+     *     recipientNumber: preview.recipientNumber
+     *   }
+     * );
+     *
+     * db.update('airtimeTransactions', transactionId, {
+     *   walletTransactionId: walletTransaction.id
+     * });
+     */
+
+    // Call external provider with failover (Baxi -> Ringo)
+    const providerResult = await ProviderService.executeWithFailover(
+      'airtime',
+      'purchase_airtime',
       {
-        airtimeTransactionId: transactionId,
-        provider: preview.provider.code,
-        recipientNumber: preview.recipientNumber
+        reference,
+        phoneNumber: preview.recipientNumber,
+        network: preview.provider.code,
+        amount: preview.amount
       }
     );
-
-    // Update with wallet transaction ID
-    db.update('airtimeTransactions', transactionId, {
-      walletTransactionId: walletTransaction.id
-    });
-
-    // Call external provider (simulated)
-    const providerResult = await this.callProvider(airtimeTransaction);
 
     // Update transaction with provider response
     const finalTransaction = db.update('airtimeTransactions', transactionId, {
       status: providerResult.success ? TRANSACTION_STATUS.COMPLETED : TRANSACTION_STATUS.FAILED,
-      providerReference: providerResult.reference,
+      providerReference: providerResult.data?.providerReference || null,
       providerResponse: providerResult,
+      providerUsed: providerResult.provider?.name || null,
       completedAt: providerResult.success ? new Date() : null,
       failedAt: providerResult.success ? null : new Date(),
-      failureReason: providerResult.success ? null : providerResult.error,
+      failureReason: providerResult.success ? null : (providerResult.error || 'Provider error'),
       updatedAt: new Date()
     });
 
-    // If successful, credit cashback
-    if (providerResult.success && preview.cashback > 0) {
-      await this.creditCashback(userId, transactionId, preview.cashback);
-    }
-
-    // If failed, refund wallet
-    if (!providerResult.success) {
-      await WalletService.credit(
-        userId,
-        preview.amount,
-        'NGN',
-        `Refund - Failed airtime purchase - ${reference}`,
-        { airtimeTransactionId: transactionId }
-      );
-    }
+    /**
+     * TODO: Wallet Integration
+     * When Wallet module is available:
+     *
+     * If successful, credit cashback:
+     * if (providerResult.success && preview.cashback > 0) {
+     *   await WalletService.credit(
+     *     userId,
+     *     preview.cashback,
+     *     'NGN',
+     *     `Cashback - Airtime purchase`,
+     *     { type: 'cashback', sourceTransactionId: transactionId }
+     *   );
+     * }
+     *
+     * If failed, refund wallet:
+     * if (!providerResult.success) {
+     *   await WalletService.credit(
+     *     userId,
+     *     preview.amount,
+     *     'NGN',
+     *     `Refund - Failed airtime purchase - ${reference}`,
+     *     { airtimeTransactionId: transactionId }
+     *   );
+     * }
+     */
 
     return {
       success: providerResult.success,
@@ -427,58 +502,39 @@ class AirtimeService {
         amount: finalTransaction.amount,
         cashback: finalTransaction.cashback,
         status: finalTransaction.status,
+        providerUsed: finalTransaction.providerUsed,
         createdAt: finalTransaction.createdAt
       },
       message: providerResult.success
         ? `Airtime successfully purchased for ${finalTransaction.recipientNumber}`
-        : providerResult.error || 'Airtime purchase failed'
+        : providerResult.error || 'Airtime purchase failed. Please try again.'
     };
   }
 
   /**
-   * Call external airtime provider (abstracted)
-   * In production, this would call actual provider APIs like VTPass, Reloadly, etc.
+   * Verify biometric token for high-value transactions
    */
-  static async callProvider(transaction) {
-    // Simulate API call delay
-    await new Promise(resolve => setTimeout(resolve, 500));
+  static async verifyBiometricToken(userId, biometricToken) {
+    // Check if token exists and is valid
+    const tokenData = db.findById('biometricTokens', biometricToken);
 
-    // Simulate success (95% success rate in simulation)
-    const success = Math.random() > 0.05;
-
-    if (success) {
-      return {
-        success: true,
-        reference: `PROV${Date.now()}${Math.random().toString(36).substring(7).toUpperCase()}`,
-        message: 'Airtime vending successful',
-        timestamp: new Date().toISOString()
-      };
-    } else {
-      return {
-        success: false,
-        reference: null,
-        error: 'Provider service temporarily unavailable',
-        timestamp: new Date().toISOString()
-      };
+    if (!tokenData) {
+      throw new ValidationError('Invalid biometric verification');
     }
-  }
 
-  /**
-   * Credit cashback to user wallet
-   */
-  static async creditCashback(userId, airtimeTransactionId, amount) {
-    if (amount <= 0) return;
+    if (tokenData.userId !== userId) {
+      throw new ValidationError('Invalid biometric verification');
+    }
 
-    await WalletService.credit(
-      userId,
-      amount,
-      'NGN',
-      `Cashback - Airtime purchase`,
-      {
-        type: 'cashback',
-        sourceTransactionId: airtimeTransactionId
-      }
-    );
+    if (new Date() > new Date(tokenData.expiresAt)) {
+      db.delete('biometricTokens', biometricToken);
+      throw new ValidationError('Biometric verification expired. Please verify again.');
+    }
+
+    // Token is valid - delete it (one-time use)
+    db.delete('biometricTokens', biometricToken);
+
+    return true;
   }
 
   /**
@@ -604,6 +660,7 @@ class AirtimeService {
       cashback: transaction.cashback,
       status: transaction.status,
       providerReference: transaction.providerReference,
+      providerUsed: transaction.providerUsed,
       createdAt: transaction.createdAt,
       completedAt: transaction.completedAt,
       failedAt: transaction.failedAt,
@@ -648,7 +705,6 @@ class AirtimeService {
   static async redoTransaction(userId, transactionId) {
     const originalTransaction = this.getTransactionDetails(userId, transactionId);
 
-    // Create a new preview with same details
     return this.initiateAirtimePurchase(userId, {
       phoneNumber: originalTransaction.recipientNumber,
       providerCode: originalTransaction.provider.code,
